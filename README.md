@@ -43,7 +43,7 @@ peng_pf_ui/
 ├── Miehe2010_SENT_tension.jl
 ├── Miehe2010_SENS_shear.jl
 ├── README.md
-├── requirements.txt
+├── environment.yml
 └── gui/
     ├── gui_main.py
     ├── gui_main_modern.py
@@ -55,35 +55,25 @@ peng_pf_ui/
 
 ## 运行环境
 
-### Python
+这个项目现在只保留一个环境文件：
 
-当前 Python GUI 显式依赖：
+- [environment.yml](environment.yml)
 
-- `PyQt5==5.15.11`
-- `matplotlib==3.10.8`
+这个文件统一描述：
 
-仓库已提供 [requirements.txt](requirements.txt)。
+- `conda` 环境名 `pf_env`
+- Python 运行时版本
+- GUI 需要的 Python 包
+- Julia 运行时版本
+- 当前确认过的 Julia 顶层包版本说明
 
-### Julia
-
-后端由 Julia 脚本驱动，当前项目默认使用 `pf_env` 环境中的 Julia。
-
-当前 README 默认约定：
-
-- `conda` 环境名：`pf_env`
-- `julia` 可执行程序在激活 `pf_env` 后可直接调用
-- GUI 会在内部通过 `conda activate pf_env` 启动 Julia 后端
+当前 GUI 仍默认依赖激活后的 `pf_env`，并在内部通过 `conda activate pf_env` 启动 Julia 后端。
 
 ## 安装
 
-推荐继续使用你现在的 `pf_env`。
-
-如果只补 Python 依赖，可以执行：
-
 ```bash
-eval "$(/home/dazhi_zhao/miniforge3/bin/conda shell.bash hook)"
+conda env create -f environment.yml
 conda activate pf_env
-pip install -r requirements.txt
 ```
 
 ## 快速开始
@@ -183,6 +173,7 @@ ERROR ...
 ## 相关文件
 
 - [GUI_SPEC.md](GUI_SPEC.md)
+- [environment.yml](environment.yml)
 - [gui_main.py](gui/gui_main.py)
 - [gui_main_modern.py](gui/gui_main_modern.py)
 - [gui_solver.jl](gui/gui_solver.jl)
