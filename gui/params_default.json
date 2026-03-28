@@ -1,0 +1,27 @@
+{
+  "common": {
+    "W": 1.0,
+    "H": 1.0,
+    "a0": 0.5,
+    "E": 210950.0,
+    "nu": 0.3,
+    "Gc": 2.7,
+    "l0": 0.015,
+    "eta_k": 0.0,
+    "h_fine": 0.005,
+    "h_coarse": 0.05,
+    "snapshot_every": 25
+  },
+  "cases": {
+    "SENT": {
+      "N_steps_coarse": 500,
+      "du_coarse": 8.0e-6,
+      "du_fine": 8.0e-6,
+      "u_end": 8.0e-3
+    },
+    "SENS": {
+      "du_shear": 2.0e-5,
+      "u_end": 2.0e-2
+    }
+  }
+}

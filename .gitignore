@@ -1,0 +1,16 @@
+.DS_Store
+
+.vscode/
+tmp/
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+gui/__pycache__/
+gui/gui_results/
+results_*/
+
+gui_stop.flag
+gui_params_*.json
