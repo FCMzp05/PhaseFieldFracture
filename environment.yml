@@ -16,6 +16,7 @@
 # - Gmsh v0.3.1
 # - Gridap v0.20.3
 # - GridapGmsh v0.7.4
+# - LineSearches v7.5.1
 # - Plots v1.41.6
 #
 # Recommended usage:

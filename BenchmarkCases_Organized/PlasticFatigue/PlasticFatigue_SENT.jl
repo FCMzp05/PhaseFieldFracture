@@ -29,6 +29,12 @@ using Plots
 gr()
 using DelimitedFiles
 
+include(joinpath(@__DIR__, "..", "_gui_runtime_override.jl"))
+using .GuiRuntimeOverride
+
+const GUI_RUNTIME = load_runtime_override(ARGS)
+const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+
 # ============================================================================
 # 几何参数
 # ============================================================================
@@ -51,12 +57,12 @@ struct MaterialData
 end
 
 function create_material()
-    E = 210000.0
-    ν = 0.3
+    E = get_float(GUI_PARAMS, "E", 210000.0)
+    ν = get_float(GUI_PARAMS, "nu", 0.3)
     G = E / (2 * (1 + ν))
     λ = E * ν / ((1 + ν) * (1 - 2 * ν))
-    σy0 = 440.0
-    n = 0.1
+    σy0 = get_float(GUI_PARAMS, "sigma_y0", 440.0)
+    n = get_float(GUI_PARAMS, "n", 0.1)
     return MaterialData(E, ν, G, λ, σy0, n)
 end
 
@@ -66,35 +72,35 @@ const mat = create_material()
 # 相场参数 (Table 3)
 # ============================================================================
 
-const l0 = 0.02      # 长度尺度参数 (mm)
-const Gc = 2.7       # 临界能量释放率 (N/mm)
-const αT = 11.25     # 疲劳阈值 (N/mm²)
+const l0 = get_float(GUI_PARAMS, "l0", 0.02)      # 长度尺度参数 (mm)
+const Gc = get_float(GUI_PARAMS, "Gc", 2.7)       # 临界能量释放率 (N/mm)
+const αT = get_float(GUI_PARAMS, "alpha_T", 11.25)     # 疲劳阈值 (N/mm²)
 const η_stab = 1e-6  # 数值稳定性参数
 
 # ⭐ 塑性能量权重系数 (Section 2.1)
-const η_plastic = 1.0  # 论文Table 3建议η=1.0
+const η_plastic = get_float(GUI_PARAMS, "eta_plastic", 1.0)  # 论文Table 3建议η=1.0
 
 # ============================================================================
 # 载荷参数 (Section 4.1.2)
 # ============================================================================
 
-const u_max = 0.001  # 最大位移 (mm)
-const R_load = 0.0   # 载荷比
+const u_max = get_float(GUI_PARAMS, "u_max", 0.001)  # 最大位移 (mm)
+const R_load = get_float(GUI_PARAMS, "R_load", 0.0)   # 载荷比
 const u_min = R_load * u_max
 
 # ============================================================================
 # 循环参数
 # ============================================================================
 
-const N_CYCLES = 800           # 总循环数
-const N_STEPS_PER_CYCLE = 20   # 每个循环的步数
+const N_CYCLES = get_int(GUI_PARAMS, "N_CYCLES", 800)           # 总循环数
+const N_STEPS_PER_CYCLE = get_int(GUI_PARAMS, "N_STEPS_PER_CYCLE", 20)   # 每个循环的步数
 const phase_every = 1          # 相场更新频率
 const max_stagger = 20         # 最大交错迭代次数
 const stagger_tol = 1e-6       # 交错迭代收敛容差
 
 # 可视化与内存控制
-const ENABLE_PNG = false
-const SAVE_PNG_EVERY = 10
+const ENABLE_PNG = get_bool(GUI_PARAMS, "ENABLE_PNG", false)
+const SAVE_PNG_EVERY = get_int(GUI_PARAMS, "SAVE_PNG_EVERY", 10)
 const PNG_DPI = 110
 const PLOT_CELL_EDGES = false
 const FORCE_GC_EVERY = 20
@@ -109,8 +115,8 @@ const Δt_step = Δt_cycle / N_STEPS_PER_CYCLE  # 每个子步的时间增量
 # 网格参数
 # ============================================================================
 
-const h_fine = 0.005    # 裂纹区域细网格尺寸 (mm)
-const h_coarse = 0.05   # 远场粗网格尺寸 (mm)
+const h_fine = get_float(GUI_PARAMS, "h_fine", 0.005)    # 裂纹区域细网格尺寸 (mm)
+const h_coarse = get_float(GUI_PARAMS, "h_coarse", 0.05)   # 远场粗网格尺寸 (mm)
 const OUTPUT_DIR = "results_PlasticFatigue_SENT"
 const TIP_X_BACK = 3.0 * l0
 const TIP_X_FRONT = 1.0 * l0

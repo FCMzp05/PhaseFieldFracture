@@ -40,8 +40,11 @@ REPO_ROOT = GUI_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from visual import export_visuals
+
 if __package__ in (None, ""):
     from case_registry import (
+        BOOL_FIELDS,
         CASE_DEFINITIONS,
         CASE_REGISTRY,
         CATEGORY_LABELS,
@@ -58,6 +61,7 @@ if __package__ in (None, ""):
     from run_manifest import RunManifest, dedupe_existing_paths, load_manifest, make_run_id, manifest_file_payloads, write_manifest
 else:
     from .case_registry import (
+        BOOL_FIELDS,
         CASE_DEFINITIONS,
         CASE_REGISTRY,
         CATEGORY_LABELS,
@@ -285,10 +289,11 @@ class BatchJuliaWorker(QThread):
     status_update = pyqtSignal(str)
     finished_state = pyqtSignal(bool, str, str, str)
 
-    def __init__(self, case_id: str, script_path: Path):
+    def __init__(self, case_id: str, script_path: Path, params_path: Path):
         super().__init__()
         self.case_id = case_id
         self.script_path = script_path
+        self.params_path = params_path
         self.run_mode = "compute"
         self._process = None
         self._stop_requested = False
@@ -302,7 +307,7 @@ class BatchJuliaWorker(QThread):
     def run(self):
         cmd = (
             f"{conda_activate_prefix()}"
-            f'julia "{self.script_path}"'
+            f'julia "{self.script_path}" "{self.params_path}"'
         )
         self.status_update.emit(f"Launching benchmark script: {self.script_path.name}")
         self._process = subprocess.Popen(
@@ -379,6 +384,7 @@ class MainWindow(QMainWindow):
             raw = json.load(handle)
 
         common = {key: self._format_value(value) for key, value in raw["common"].items()}
+        case_defaults_raw = raw.get("case_defaults", {})
         defaults = {}
         for case in CASE_REGISTRY:
             merged = {}
@@ -390,6 +396,12 @@ class MainWindow(QMainWindow):
                         for key, value in raw["cases"].get(case.protocol_case_name, {}).items()
                     }
                 )
+            merged.update(
+                {
+                    key: self._format_value(value)
+                    for key, value in case_defaults_raw.get(case.case_id, {}).items()
+                }
+            )
             defaults[case.case_id] = merged
         return defaults
 
@@ -675,7 +687,7 @@ class MainWindow(QMainWindow):
                 if manifest is not None:
                     self._apply_manifest_to_state(case.case_id, manifest_path, manifest)
                     continue
-            manifest = self._build_manifest_from_disk(case, perform_export=case.case_id == "fang_flat_grooved_scan")
+            manifest = self._build_manifest_from_disk(case, perform_export=bool(case.visual_exporter))
             if manifest is not None:
                 manifest_path = latest_manifest_path(case.case_id)
                 write_manifest(manifest_path, manifest)
@@ -683,10 +695,28 @@ class MainWindow(QMainWindow):
 
     def _build_manifest_from_disk(self, case, perform_export: bool):
         if case.result_profile.startswith("protocol_"):
-            return self._build_protocol_manifest(case)
-        if case.result_profile == "fang_flat_grooved_scan":
-            return self._build_fang_manifest(case, perform_export=perform_export)
-        return None
+            manifest = self._build_protocol_manifest(case)
+        elif case.result_profile == "elastic_fatigue_tpb":
+            manifest = self._build_tpb_manifest(case)
+        elif case.result_profile == "elastic_fatigue_offset_scan":
+            manifest = self._build_offset_scan_manifest(case)
+        elif case.result_profile == "plastic_fracture_flat_grooved_scan":
+            manifest = self._build_fang_manifest(case)
+        elif case.result_profile == "plastic_fracture_double_notched_scan":
+            manifest = self._build_double_notched_manifest(case)
+        elif case.result_profile == "plastic_fatigue_sent":
+            manifest = self._build_plastic_fatigue_sent_manifest(case)
+        elif case.result_profile == "plastic_fatigue_ct":
+            manifest = self._build_plastic_fatigue_ct_manifest(case)
+        else:
+            manifest = None
+        if manifest is None:
+            return None
+        if self.active_run_id is not None:
+            manifest.run_id = self.active_run_id
+        if perform_export and case.visual_exporter:
+            self._populate_visual_exports(case, manifest)
+        return manifest
 
     def _build_protocol_manifest(self, case):
         case_name = case.protocol_case_name
@@ -729,41 +759,20 @@ class MainWindow(QMainWindow):
             displacement_paths=dedupe_existing_paths([displacement] if displacement else []),
         )
 
-    def _build_fang_manifest(self, case, perform_export: bool):
-        native_output_dir = case.native_output_abspath
-        if native_output_dir is None or not native_output_dir.exists():
+    def _build_batch_manifest(
+        self,
+        case,
+        native_output_dir: Path,
+        *,
+        mesh_paths,
+        snapshot_paths=(),
+        vtk_paths=(),
+        curve_csv_paths=(),
+        damage_paths=(),
+        displacement_paths=(),
+    ):
+        if not any([mesh_paths, snapshot_paths, vtk_paths, curve_csv_paths, damage_paths, displacement_paths]):
             return None
-
-        scan_summary = native_output_dir / "scan_summary.csv"
-        if not scan_summary.exists():
-            return None
-
-        mesh_paths = []
-        snapshot_paths = []
-        vtk_paths = []
-        curve_csv_paths = [scan_summary]
-        for path in native_output_dir.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix == ".msh" or path.name == "geometry_mesh.png":
-                mesh_paths.append(path)
-            elif path.name.startswith("damage_") and path.suffix == ".png":
-                snapshot_paths.append(path)
-            elif path.name.startswith("result_") and path.suffix == ".vtu":
-                vtk_paths.append(path)
-            elif path.name.startswith("force_displacement_") and path.suffix == ".csv":
-                curve_csv_paths.append(path)
-
-        exported_visual_paths = {}
-        notes = []
-        if perform_export:
-            try:
-                from visual.export_fang2019_panels import export_fang2019_panels
-
-                export_dir = VISUAL_EXPORT_DIR / case.case_id / make_run_id(case.case_id)
-                exported_visual_paths = export_fang2019_panels(native_output_dir, export_dir)
-            except Exception as exc:
-                notes.append(f"Visual export failed: {exc}")
 
         return RunManifest(
             category_id=case.category_id,
@@ -778,9 +787,125 @@ class MainWindow(QMainWindow):
             snapshot_paths=dedupe_existing_paths(snapshot_paths),
             vtk_paths=dedupe_existing_paths(vtk_paths),
             curve_csv_paths=dedupe_existing_paths(curve_csv_paths),
-            exported_visual_paths=exported_visual_paths,
-            notes=notes,
+            damage_paths=dedupe_existing_paths(damage_paths),
+            displacement_paths=dedupe_existing_paths(displacement_paths),
         )
+
+    def _collect_files(self, base_dir: Path, patterns, recursive: bool = True):
+        files = []
+        for pattern in patterns:
+            iterator = base_dir.rglob(pattern) if recursive else base_dir.glob(pattern)
+            files.extend(path for path in iterator if path.is_file())
+        return files
+
+    def _build_tpb_manifest(self, case):
+        native_output_dir = case.native_output_abspath
+        if native_output_dir is None or not native_output_dir.exists():
+            return None
+
+        case_dir = native_output_dir / "AT1"
+        mesh_paths = self._collect_files(native_output_dir, ("BeamWithNotchSymThreePtBending.msh", "mesh.png"), recursive=False)
+        vtk_paths = self._collect_files(case_dir, ("cycle_*.vtu",), recursive=False) if case_dir.exists() else []
+        curve_csv_paths = self._collect_files(case_dir, ("history.csv",), recursive=False) if case_dir.exists() else []
+        damage_paths = self._collect_files(case_dir, ("damage_final.png",), recursive=False) if case_dir.exists() else []
+        return self._build_batch_manifest(
+            case,
+            native_output_dir,
+            mesh_paths=mesh_paths,
+            vtk_paths=vtk_paths,
+            curve_csv_paths=curve_csv_paths,
+            damage_paths=damage_paths,
+        )
+
+    def _build_fang_manifest(self, case):
+        native_output_dir = case.native_output_abspath
+        if native_output_dir is None or not native_output_dir.exists():
+            return None
+
+        scan_summary = native_output_dir / "scan_summary.csv"
+        if not scan_summary.exists():
+            return None
+
+        return self._build_batch_manifest(
+            case,
+            native_output_dir,
+            mesh_paths=self._collect_files(native_output_dir, ("*.msh", "geometry_mesh.png")),
+            snapshot_paths=self._collect_files(native_output_dir, ("damage_*.png",)),
+            vtk_paths=self._collect_files(native_output_dir, ("result_*.vtu",)),
+            curve_csv_paths=[scan_summary, *self._collect_files(native_output_dir, ("force_displacement_*.csv",))],
+        )
+
+    def _build_offset_scan_manifest(self, case):
+        native_output_dir = case.native_output_abspath
+        if native_output_dir is None or not native_output_dir.exists():
+            return None
+        if not (native_output_dir / "scan_summary.csv").exists():
+            return None
+        return self._build_batch_manifest(
+            case,
+            native_output_dir,
+            mesh_paths=self._collect_files(native_output_dir, ("mesh_offset_double_notch.msh", "mesh.png")),
+            vtk_paths=self._collect_files(native_output_dir, ("result_*.vtu",)),
+            damage_paths=self._collect_files(native_output_dir, ("damage_final.png",)),
+        )
+
+    def _build_double_notched_manifest(self, case):
+        native_output_dir = case.native_output_abspath
+        if native_output_dir is None or not native_output_dir.exists():
+            return None
+        if not (native_output_dir / "scan_summary.csv").exists():
+            return None
+        return self._build_batch_manifest(
+            case,
+            native_output_dir,
+            mesh_paths=self._collect_files(native_output_dir, ("mesh_double_notched.msh", "mesh_double_notched.png")),
+            snapshot_paths=self._collect_files(native_output_dir, ("damage_*.png",)),
+            vtk_paths=self._collect_files(native_output_dir, ("result_*.vtu",)),
+        )
+
+    def _build_plastic_fatigue_sent_manifest(self, case):
+        native_output_dir = case.native_output_abspath
+        if native_output_dir is None or not native_output_dir.exists():
+            return None
+        return self._build_batch_manifest(
+            case,
+            native_output_dir,
+            mesh_paths=self._collect_files(native_output_dir, ("mesh.msh", "mesh.png"), recursive=False),
+            snapshot_paths=self._collect_files(native_output_dir, ("damage_N*.png",), recursive=False),
+            vtk_paths=self._collect_files(native_output_dir, ("result_*.vtu",), recursive=False),
+            curve_csv_paths=self._collect_files(native_output_dir, ("cycle_summary.csv",), recursive=False),
+        )
+
+    def _build_plastic_fatigue_ct_manifest(self, case):
+        native_output_dir = case.native_output_abspath
+        if native_output_dir is None or not native_output_dir.exists():
+            return None
+        return self._build_batch_manifest(
+            case,
+            native_output_dir,
+            mesh_paths=self._collect_files(native_output_dir, ("CT_mesh.msh", "mesh_CT.png"), recursive=False),
+            vtk_paths=self._collect_files(native_output_dir, ("result*.vtu",), recursive=False),
+            curve_csv_paths=self._collect_files(native_output_dir, ("cycle_summary.csv",), recursive=False),
+            damage_paths=self._collect_files(native_output_dir, ("damage_final.png",), recursive=False),
+        )
+
+    def _populate_visual_exports(self, case, manifest: RunManifest):
+        if not case.visual_exporter or not manifest.native_output_dir:
+            return
+        if not any([manifest.snapshot_paths, manifest.curve_csv_paths, manifest.damage_paths, manifest.vtk_paths]):
+            return
+
+        native_output_dir = Path(manifest.native_output_dir)
+        if not native_output_dir.exists():
+            manifest.notes.append(f"Visual export skipped: missing output dir {native_output_dir}")
+            return
+
+        try:
+            export_dir = VISUAL_EXPORT_DIR / case.case_id / manifest.run_id
+            manifest.exported_visual_paths = export_visuals(case.visual_exporter, native_output_dir, export_dir)
+        except Exception as exc:
+            manifest.exported_visual_paths = {}
+            manifest.notes.append(f"Visual export failed: {exc}")
 
     def _apply_manifest_to_state(self, case_id: str, manifest_path: Path, manifest: RunManifest):
         state = self.case_states[case_id]
@@ -826,7 +951,7 @@ class MainWindow(QMainWindow):
         return None
 
     def _load_curve_history(self, manifest: RunManifest, case) -> tuple[list[float], list[float]]:
-        if case.case_id == "fang_flat_grooved_scan":
+        if len(case.curve_columns) != 2:
             return [], []
         if not manifest.curve_csv_paths:
             return [], []
@@ -834,18 +959,15 @@ class MainWindow(QMainWindow):
         if not csv_path.exists():
             return [], []
 
+        x_column, y_column = case.curve_columns
         x_values = []
         y_values = []
         with csv_path.open("r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
                 try:
-                    if case.curve_kind == "force_displacement":
-                        x_values.append(float(row["u_mm"]))
-                        y_values.append(float(row["F_kN"]))
-                    else:
-                        x_values.append(float(row["N"]))
-                        y_values.append(float(row["delta_a_mm"]))
+                    x_values.append(float(row[x_column]))
+                    y_values.append(float(row[y_column]))
                 except (KeyError, TypeError, ValueError):
                     continue
         return x_values, y_values
@@ -1195,15 +1317,13 @@ class MainWindow(QMainWindow):
             raw = self.inputs[key].text().strip()
             if key in INT_FIELDS:
                 params[key] = int(raw)
+            elif key in BOOL_FIELDS:
+                params[key] = raw.lower() in {"1", "true", "yes", "on"}
             else:
                 params[key] = float(raw)
         return params
 
-    def write_runtime_params(self, params, run_mode: str, protocol_case_name: str, mesh_file: str = ""):
-        payload = dict(params)
-        payload["case_name"] = protocol_case_name
-        payload["run_mode"] = run_mode
-        payload["mesh_file"] = mesh_file
+    def write_runtime_params(self, payload):
 
         RESULTS_DIR.mkdir(parents=True, exist_ok=True)
         handle = tempfile.NamedTemporaryFile(
@@ -1218,6 +1338,21 @@ class MainWindow(QMainWindow):
             json.dump(payload, handle, indent=2)
         self.runtime_params_path = Path(handle.name)
         return self.runtime_params_path
+
+    def _build_protocol_runtime_payload(self, case, params, run_mode: str):
+        payload = dict(params)
+        payload["case_name"] = case.protocol_case_name
+        payload["run_mode"] = run_mode
+        payload["mesh_file"] = str(self._current_state()["mesh_artifact_path"] or "")
+        return payload
+
+    def _build_batch_runtime_payload(self, case, params):
+        return {
+            "case_id": case.case_id,
+            "run_mode": "compute",
+            "smoke_mode": case.smoke_mode_default,
+            "params": params,
+        }
 
     def cleanup_runtime_params(self):
         if self.runtime_params_path and self.runtime_params_path.exists():
@@ -1261,16 +1396,12 @@ class MainWindow(QMainWindow):
 
         self.active_run_id = make_run_id(case.case_id)
         if case.backend_mode == "protocol_julia":
-            params_path = self.write_runtime_params(
-                params,
-                run_mode=run_mode,
-                protocol_case_name=case.protocol_case_name,
-                mesh_file=str(self._current_state()["mesh_artifact_path"] or ""),
-            )
+            params_path = self.write_runtime_params(self._build_protocol_runtime_payload(case, params, run_mode))
             self.worker = ProtocolJuliaWorker(case.case_id, case.protocol_case_name, params_path, run_mode)
         else:
             assert case.script_abspath is not None
-            self.worker = BatchJuliaWorker(case.case_id, case.script_abspath)
+            params_path = self.write_runtime_params(self._build_batch_runtime_payload(case, params))
+            self.worker = BatchJuliaWorker(case.case_id, case.script_abspath, params_path)
 
         self.worker.log_line.connect(self.append_log)
         self.worker.progress_update.connect(self.update_progress)
@@ -1391,12 +1522,10 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Results saved", f"Saved {copied_count} payload(s) to {target_path}.")
 
     def _build_manifest_after_run(self, case):
-        perform_export = case.case_id == "fang_flat_grooved_scan"
+        perform_export = bool(case.visual_exporter)
         manifest = self._build_manifest_from_disk(case, perform_export=perform_export)
         if manifest is None:
             return None, None
-        if self.active_run_id is not None:
-            manifest.run_id = self.active_run_id
         manifest_path = latest_manifest_path(case.case_id)
         write_manifest(manifest_path, manifest)
         return manifest_path, manifest

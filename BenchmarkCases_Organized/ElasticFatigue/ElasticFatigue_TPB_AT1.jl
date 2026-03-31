@@ -26,13 +26,19 @@ using Gmsh: gmsh
 ENV["GKSwstype"] = "100"
 gr(show = false)
 
+include(joinpath(@__DIR__, "..", "_gui_runtime_override.jl"))
+using .GuiRuntimeOverride
+
+const GUI_RUNTIME = load_runtime_override(ARGS)
+const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+
 # ============================================================================
 # Base benchmark parameters from the notebook / paper
 # ============================================================================
-const E_mat = 20.8
-const ν_mat = 0.3
-const Gc = 5e-4
-const ls = 0.06
+const E_mat = get_float(GUI_PARAMS, "E_mat", 20.8)
+const ν_mat = get_float(GUI_PARAMS, "nu_mat", 0.3)
+const Gc = get_float(GUI_PARAMS, "Gc", 5e-4)
+const ls = get_float(GUI_PARAMS, "ls", 0.06)
 const η = 1e-15
 
 const L = 8.0
@@ -42,9 +48,9 @@ const H = 2.0
 const CH = 0.4
 const CW = 0.2
 
-const hfc = 0.03 / 100
-const hf = 0.03 / 5
-const h = 50 * hf
+const hfc = get_float(GUI_PARAMS, "hfc", 0.03 / 100)
+const hf = get_float(GUI_PARAMS, "hf", 0.03 / 5)
+const h = get_float(GUI_PARAMS, "h", 50 * hf)
 
 const σc = 0.2
 const m = 3 * E_mat * Gc / (4 * ls * σc^2)
@@ -53,15 +59,15 @@ const kf = 0.5
 const αT = ψ_Crit / kf
 
 const T_TOTAL = 1.0
-const N_CYCLES = 400
-const N_STEPS_PER_CYCLE = 10
+const N_CYCLES = get_int(GUI_PARAMS, "N_CYCLES", 400)
+const N_STEPS_PER_CYCLE = get_int(GUI_PARAMS, "N_STEPS_PER_CYCLE", 10)
 const INNER_MAX = 5
 const REL_TOL = 1e-6
 const DAMAGE_TOL = 0.05
-const U_MAX = 0.025 / 2
+const U_MAX = get_float(GUI_PARAMS, "U_MAX", 0.025 / 2)
 const R_CASES = [0.0]
 const OUTPUT_ROOT = "results_ElasticFatigue_TPB_AT1"
-const SAVE_CYCLE_INTERVAL = 40
+const SAVE_CYCLE_INTERVAL = get_int(GUI_PARAMS, "SAVE_CYCLE_INTERVAL", 40)
 
 # ============================================================================
 # Constitutive definitions copied from notebook

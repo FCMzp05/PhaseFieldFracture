@@ -26,6 +26,12 @@ ENV["GKSwstype"] = "100"
 using Plots
 gr(show = false)
 
+include(joinpath(@__DIR__, "..", "_gui_runtime_override.jl"))
+using .GuiRuntimeOverride
+
+const GUI_RUNTIME = load_runtime_override(ARGS)
+const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+
 # ============================================================================
 # 几何参数（与 Xie_fig9.jl 一致）
 # ============================================================================
@@ -66,15 +72,15 @@ struct MaterialData
 end
 
 function create_material()
-    E = 1.61e5
-    ν = 0.3
+    E = get_float(GUI_PARAMS, "E", 1.61e5)
+    ν = get_float(GUI_PARAMS, "nu", 0.3)
     G = E / (2.0 * (1.0 + ν))
     λ = E * ν / ((1.0 + ν) * (1.0 - 2.0 * ν))
-    σy0 = 900.0
-    Q∞  = 80.0
-    b   = 5.0
-    C   = 12_000.0
-    γ   = 80.0
+    σy0 = get_float(GUI_PARAMS, "sigma_y0", 900.0)
+    Q∞  = get_float(GUI_PARAMS, "Q_inf", 80.0)
+    b   = get_float(GUI_PARAMS, "b", 5.0)
+    C   = get_float(GUI_PARAMS, "C", 12_000.0)
+    γ   = get_float(GUI_PARAMS, "gamma", 80.0)
     return MaterialData(E, ν, G, λ, σy0, Q∞, b, C, γ)
 end
 
@@ -83,27 +89,27 @@ const mat = create_material()
 # ============================================================================
 # 相场与疲劳参数（与 Xie 一致）
 # ============================================================================
-const l0 = 0.4
-const GcI = 47.5
-const GcII = 47.5
+const l0 = get_float(GUI_PARAMS, "l0", 0.4)
+const GcI = get_float(GUI_PARAMS, "GcI", 47.5)
+const GcII = get_float(GUI_PARAMS, "GcII", 47.5)
 const η_stab = 1e-4
-const αT = 5000.0
+const αT = get_float(GUI_PARAMS, "alpha_T", 5000.0)
 
-const F_MAX_3D = 25000.0
+const F_MAX_3D = get_float(GUI_PARAMS, "F_MAX_3D", 25000.0)
 const F_MAX = F_MAX_3D / THICKNESS
-const R_LOAD = 0.1
+const R_LOAD = get_float(GUI_PARAMS, "R_LOAD", 0.1)
 const F_MIN = R_LOAD * F_MAX
 
-const N_CYCLES_TOTAL = 60000
-const N_STEPS_PER_CYCLE = 20
-const CYCLE_JUMP = 100
+const N_CYCLES_TOTAL = get_int(GUI_PARAMS, "N_CYCLES_TOTAL", 60000)
+const N_STEPS_PER_CYCLE = get_int(GUI_PARAMS, "N_STEPS_PER_CYCLE", 20)
+const CYCLE_JUMP = get_int(GUI_PARAMS, "CYCLE_JUMP", 100)
 const phase_every = 1
 const max_stagger_default = 20
 const stagger_tol_default = 1e-6
 const verbose_substep = false
 
-const h_coarse = 2.0
-const h_fine = 0.2
+const h_coarse = get_float(GUI_PARAMS, "h_coarse", 2.0)
+const h_fine = get_float(GUI_PARAMS, "h_fine", 0.2)
 const OUTPUT_DIR = "results_PlasticFatigue_CT"
 const STOP_CRACK_X = 36.0
 const VTK_CRACK_FRACTIONS = [0.10, 0.30, 0.60, 0.90]

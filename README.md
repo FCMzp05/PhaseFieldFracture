@@ -11,15 +11,27 @@
 - 已重建 `gui_envs` 运行环境，并补齐 `meshio`
 - 已把最新 Julia benchmark 代码统一整理到 `BenchmarkCases_Organized/`
 - 已把 GUI 从硬编码 `SENT / SENS` 收敛到“四大类 -> benchmark case”选择结构
-- 已接通 3 个可运行 case：
+- 已接通 8 个可运行 case：
   - `SENT tension`
   - `SENS shear`
+  - `TPB fatigue`
+  - `Offset double-notch fatigue`
   - `Fang flat grooved scan`
+  - `Double-notched monotonic`
+  - `SENT elasto-plastic fatigue`
+  - `CT elasto-plastic fatigue`
+- 已为新增 5 个 batch case 接通 GUI 参数编辑
+- 已实现 batch benchmark 的 runtime JSON 参数覆盖，不再只能跑脚本硬编码默认值
+- 已把新增 batch case 默认参数收敛到最小 smoke run，方便先跑通一小步
 - 已实现 `RunManifest` 结果契约，GUI 后处理、导出和历史读取统一基于 manifest
 - 已把 `visual` 作为导出模板落地首个 exporter：
   - `Fang2019` damage panel
   - `Fang2019` equivalent plastic strain panel
   - `Fang2019` force-displacement comparison
+- 已完成 `visual` 第一阶段标准化：
+  - 新增统一 exporter 注册入口
+  - `SENT / SENS / Fang` 统一走 `case_registry -> visual exporter -> manifest`
+  - 计算完成后自动生成并显示 visual 导出图
 - 已将 `visual/` 下原有 5 个 `.ipynb` 全部转为 `.py` 脚本，不再依赖 notebook
 - 已保留 `SENT / SENS` 的 `Mesh / Compute / Post-process` 三段式工作流
 - 已实现：
@@ -37,13 +49,13 @@
 
 ### 未完成
 
-- `Elastic Fatigue` 两个 case 的真实 GUI 接入
-- `Plastic Fracture / Plastic Fatigue` 其余 case 的真实 GUI 接入
 - 自定义 `.msh` 网格导入
-- `a-N` 曲线流程
+- fatigue / plastic fatigue 的专用 `visual exporter`
 - 视频导出（`mp4` / `gif`）
 - 以“类别 + 算例 + 时间戳”组织的统一结果目录
 - `Preview / Full / Debug` 运行模式切换
+- scan 型 case 的扫描列表编辑
+- 更完整的系统测试与长程 benchmark 验证
 
 ## 最新 GUI 规格总览
 
@@ -72,9 +84,9 @@
 |------|----------|------------|----------|
 | Elastic Fracture | `SENT tension` | 最高 | 已完成 |
 | Elastic Fracture | `SENS shear` | 高 | 已完成 |
-| Elastic Fatigue | `TPB fatigue` / `Offset double-notch fatigue` | 中 | 未开始 |
-| Plastic Fracture | `Flat grooved specimen` / `Double-notched monotonic specimen` | 中 | 未开始 |
-| Plastic Fatigue | `SENT elasto-plastic fatigue` / `CT elasto-plastic fatigue` | 最后 | 未开始 |
+| Elastic Fatigue | `TPB fatigue` / `Offset double-notch fatigue` | 中 | 已接通 |
+| Plastic Fracture | `Flat grooved specimen` / `Double-notched monotonic specimen` | 中 | 已接通 |
+| Plastic Fatigue | `SENT elasto-plastic fatigue` / `CT elasto-plastic fatigue` | 最后 | 已接通 |
 
 ### 第一版实现原则
 
@@ -101,11 +113,14 @@
 | 四大类入口 + case registry | 已完成 |
 | `RunManifest` 统一结果读取 | 已完成 |
 | `visual` 导出模板接入（Fang） | 已完成 |
+| `visual` 统一 exporter 接口（SENT / SENS / Fang） | 已完成 |
 | `Plastic Fracture -> Fang flat grooved scan` | 已完成 |
+| 其余 5 个 batch case 的 GUI 接入 | 已完成 |
+| batch case GUI 参数覆盖 | 已完成 |
+| batch case 最小 smoke run 默认参数 | 已完成 |
 | 结果图、曲线、日志联动刷新 | 已完成 |
 | ParaView 打开最新结果 | 已完成 |
-| 疲劳算例 `CYCLE / a-N` | 未完成 |
-| 其余塑性与弹塑性疲劳算例 | 未完成 |
+| fatigue / plastic fatigue 基础 `a-N` 曲线读取 | 已完成 |
 | 自定义网格导入 | 未完成 |
 | 视频生成 | 未完成 |
 | 统一时间戳结果目录 | 未完成 |
@@ -113,11 +128,11 @@
 
 ## 下一步
 
-下一步优先补齐第二个 batch 系列，而不是回到旧的硬编码结构：
+下一步不再是“先接首个 fatigue case”，而是补齐已接入 case 的第二阶段能力：
 
-1. 为 `Elastic Fatigue` 选定首个对齐 `visual` 的 case 并接入 batch runner。
-2. 把 `visual` 下新增的纯 Python 脚本继续整理为统一 exporter 接口，并扩到 `SENT / SENS / Li / CT`。
-3. 再考虑统一时间戳结果目录与 `a-N` 曲线专用交互。
+1. 为 fatigue / plastic fatigue 补专用 `visual exporter`，优先 `Li / CT`。
+2. 统一时间戳结果目录和结果归档结构。
+3. 补 scan 型 case 的扫描列表编辑，而不只是共享标量参数。
 
 当前不再维护 `modern` 分支，只保留 `gui/gui_main.py`。
 
@@ -202,9 +217,10 @@ julia gui/gui_solver.jl gui/params_default.json
 - `SENT / SENS`：
   - 在已生成网格上运行求解
   - 实时输出状态、进度、快照和曲线
-- `Fang flat grooved scan`：
+- 其余 6 个 batch case：
   - 直接运行 batch benchmark
-  - 实时显示日志，结束后统一扫描结果并生成 manifest / visual 导出
+  - 在 GUI 里编辑共享参数后生成 runtime JSON
+  - 实时显示日志，结束后统一扫描结果并生成 manifest
 
 ### 3. Post-process
 

@@ -15,6 +15,12 @@ ENV["GKSwstype"] = "100"
 using Plots
 gr(show=false)
 
+include(joinpath(@__DIR__, "..", "_gui_runtime_override.jl"))
+using .GuiRuntimeOverride
+
+const GUI_RUNTIME = load_runtime_override(ARGS)
+const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+
 # ============================================================================
 # Fang et al. (2019) flat grooved specimen
 #
@@ -59,17 +65,17 @@ struct MaterialData
 end
 
 function create_material(; H_ratio::Float64=0.1)
-    E = 71_480.0
-    ν = 0.3
+    E = get_float(GUI_PARAMS, "E", 71_480.0)
+    ν = get_float(GUI_PARAMS, "nu", 0.3)
     G = E / (2 * (1 + ν))
     λ = E * ν / ((1 + ν) * (1 - 2 * ν))
-    σy0 = 345.0
+    σy0 = get_float(GUI_PARAMS, "sigma_y0", 345.0)
     H_hard = H_ratio * E
     return MaterialData(E, ν, G, λ, σy0, H_hard)
 end
 
-const lc = 0.2
-const Gc = 9.31
+const lc = get_float(GUI_PARAMS, "lc", 0.2)
+const Gc = get_float(GUI_PARAMS, "Gc", 9.31)
 const η_stab = 1e-4
 const THICKNESS = 1.0
 
@@ -77,8 +83,8 @@ const THICKNESS = 1.0
 # Loading / solver controls
 # ============================================================================
 
-const u_total = 0.30
-const N_STEPS = 1000
+const u_total = get_float(GUI_PARAMS, "u_total", 0.30)
+const N_STEPS = get_int(GUI_PARAMS, "N_STEPS", 1000)
 const Δu = u_total / N_STEPS
 const STOP_REACTION_KN = 0.1
 const STOP_AFTER_STEPS = 2
@@ -91,7 +97,7 @@ const stagger_tol = 1e-6
 # ============================================================================
 
 const h_fine = lc / 2
-const h_coarse = 3.0
+const h_coarse = get_float(GUI_PARAMS, "h_coarse", 3.0)
 
 const BASE_OUTPUT_DIR = "results_PlasticFracture_FlatGrooved"
 const HISO_SCAN = [0.1, 0.2, 0.5]

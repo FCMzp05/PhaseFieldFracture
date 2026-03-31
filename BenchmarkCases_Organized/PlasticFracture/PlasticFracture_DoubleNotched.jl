@@ -15,6 +15,12 @@ ENV["GKSwstype"] = "100"
 using Plots
 gr(show=false)
 
+include(joinpath(@__DIR__, "..", "_gui_runtime_override.jl"))
+using .GuiRuntimeOverride
+
+const GUI_RUNTIME = load_runtime_override(ARGS)
+const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+
 # ============================================================================
 # Ambati et al. (2015) / Miehe-style ductile phase-field benchmark
 # Double notched specimen, monotonic loading
@@ -76,18 +82,18 @@ struct MaterialData
 end
 
 function create_material()
-    G = 70_300.0
-    K = 136_500.0
-    E = 9.0 * K * G / (3.0 * K + G)
-    ν = (3.0 * K - 2.0 * G) / (2.0 * (3.0 * K + G))
+    E = get_float(GUI_PARAMS, "E", 179_999.06210921216)
+    ν = get_float(GUI_PARAMS, "nu", 0.280220925386)
+    G = E / (2.0 * (1.0 + ν))
+    K = E / (3.0 * (1.0 - 2.0 * ν))
     λ = K - 2.0 * G / 3.0
-    σy0 = 443.0
-    H_hard = 300.0
+    σy0 = get_float(GUI_PARAMS, "sigma_y0", 443.0)
+    H_hard = get_float(GUI_PARAMS, "H_hard", 300.0)
     return MaterialData(E, ν, G, λ, σy0, H_hard)
 end
 
-const lc = 0.03
-const Gc = 20.9
+const lc = get_float(GUI_PARAMS, "lc", 0.03)
+const Gc = get_float(GUI_PARAMS, "Gc", 20.9)
 const η_stab = 1e-4
 const THICKNESS = 1.0
 
@@ -95,7 +101,7 @@ const THICKNESS = 1.0
 # Loading / solver controls
 # ============================================================================
 
-const N_STEPS = 400
+const N_STEPS = get_int(GUI_PARAMS, "N_STEPS", 400)
 
 const STOP_FORCE_RATIO = 0.05
 const STOP_AFTER_STEPS = 6
@@ -107,8 +113,8 @@ const stagger_tol = 1e-6
 # Mesh / output
 # ============================================================================
 
-const h_fine = 0.07
-const h_coarse = 0.45
+const h_fine = get_float(GUI_PARAMS, "h_fine", 0.07)
+const h_coarse = get_float(GUI_PARAMS, "h_coarse", 0.45)
 
 const OUTPUT_DIR = "results_PlasticFracture_DoubleNotched"
 const SNAPSHOT_DAMAGE_LEVELS = [0.20, 0.60, 0.90, 0.99]

@@ -8,6 +8,13 @@
 
 **你不需要理解相场力学的物理含义。** 你只需要把这套"输入一堆参数 → 跑一段时间 → 输出结果图"的程序，套上一个可视化的壳子。
 
+## 当前执行状态（2026-03-31）
+
+- 已把最新 Julia benchmark 统一并入 `BenchmarkCases_Organized/`
+- 已接通 `SENT tension`、`SENS shear`、`Fang flat grooved scan`
+- 已完成 `visual` 第一阶段标准化，`SENT / SENS / Fang` 统一走 exporter 接口
+- 下一阶段目标：在该接口上接入首个 `Elastic Fatigue` case
+
 ---
 
 ## 现有代码：每个文件详解
@@ -745,4 +752,3 @@ GUI 里最终最重要的结果展示，不同类别建议优先显示：
 - crack length vs cycle
 
 所以 GUI 的结果面板，最好支持按算例类型自动切换默认显示内容。
-

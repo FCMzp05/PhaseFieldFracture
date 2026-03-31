@@ -18,6 +18,12 @@ ENV["GKSwstype"] = "100"
 using Plots
 gr(show=false)
 
+include(joinpath(@__DIR__, "..", "_gui_runtime_override.jl"))
+using .GuiRuntimeOverride
+
+const GUI_RUNTIME = load_runtime_override(ARGS)
+const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+
 # ============================================================================
 # Offset double-notch brittle fatigue benchmark
 #
@@ -55,10 +61,10 @@ const OFFSET_CASES = [
 # ============================================================================
 # Material / phase-field
 # ============================================================================
-const E_mat = 20.8
-const ν_mat = 0.30
-const Gc = 5e-4
-const ls = 0.10
+const E_mat = get_float(GUI_PARAMS, "E_mat", 20.8)
+const ν_mat = get_float(GUI_PARAMS, "nu_mat", 0.30)
+const Gc = get_float(GUI_PARAMS, "Gc", 5e-4)
+const ls = get_float(GUI_PARAMS, "ls", 0.10)
 const l0 = ls
 const η_k = 1e-15
 
@@ -71,21 +77,21 @@ const αT = ψ_Crit / kf
 # ============================================================================
 # Loading
 # ============================================================================
-const U_MAX = 0.05   # mm
-const R_RATIO = 0.10
-const MAX_CYCLES = 1500
-const N_STEPS_PER_CYCLE = 8
+const U_MAX = get_float(GUI_PARAMS, "U_MAX", 0.05)   # mm
+const R_RATIO = get_float(GUI_PARAMS, "R_RATIO", 0.10)
+const MAX_CYCLES = get_int(GUI_PARAMS, "MAX_CYCLES", 1500)
+const N_STEPS_PER_CYCLE = get_int(GUI_PARAMS, "N_STEPS_PER_CYCLE", 8)
 
 # ============================================================================
 # Mesh
 # x full-span, y only a central band covering both notches and the ligament
 # ============================================================================
-const h_coarse = 3.0
-const h_band = 0.15
+const h_coarse = get_float(GUI_PARAMS, "h_coarse", 3.0)
+const h_band = get_float(GUI_PARAMS, "h_band", 0.15)
 const PRECRACK_HALF_WIDTH = 0.5 * h_band
 const REFINE_XMIN = 0.0
 const REFINE_XMAX = W
-const BAND_MARGIN_Y = 3.0
+const BAND_MARGIN_Y = get_float(GUI_PARAMS, "BAND_MARGIN_Y", 3.0)
 # ============================================================================
 # Output / stopping
 # ============================================================================
