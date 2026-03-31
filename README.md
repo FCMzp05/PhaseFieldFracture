@@ -20,6 +20,7 @@
   - `Fang2019` damage panel
   - `Fang2019` equivalent plastic strain panel
   - `Fang2019` force-displacement comparison
+- 已将 `visual/` 下原有 5 个 `.ipynb` 全部转为 `.py` 脚本，不再依赖 notebook
 - 已保留 `SENT / SENS` 的 `Mesh / Compute / Post-process` 三段式工作流
 - 已实现：
   - 参数编辑
@@ -115,7 +116,7 @@
 下一步优先补齐第二个 batch 系列，而不是回到旧的硬编码结构：
 
 1. 为 `Elastic Fatigue` 选定首个对齐 `visual` 的 case 并接入 batch runner。
-2. 把 `visual` exporter 接口继续扩到 `SENT / SENS / Li / CT`。
+2. 把 `visual` 下新增的纯 Python 脚本继续整理为统一 exporter 接口，并扩到 `SENT / SENS / Li / CT`。
 3. 再考虑统一时间戳结果目录与 `a-N` 曲线专用交互。
 
 当前不再维护 `modern` 分支，只保留 `gui/gui_main.py`。
