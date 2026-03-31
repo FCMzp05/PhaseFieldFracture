@@ -556,3 +556,193 @@ print(f"[RAW] {repr(line)}")   # 确认 Python 收到的 stdout 格式是否正�
 ---
 
 *如有疑问直接来问我。*
+
+---
+
+## 新增需求（在上面原有要求基础上继续增加）
+
+下面这些要求是后续补充的，开发时请和前面的说明一起看。
+
+### 1. 首界面先做“功能选择”
+程序打开后，不要直接进入某一个算例，而是先进入一个总入口页面。
+
+入口页面需要有 4 个大类按钮或卡片：
+- `Elastic Fracture`
+- `Elastic Fatigue`
+- `Plastic Fracture`
+- `Plastic Fatigue`
+
+用户先选这一层，再进入下一层几何和参数选择页面。
+
+### 2. 第二层需要能选“预设几何/预设算例”
+进入某个功能类别后，需要先能看到该类别下已经预设好的几何或算例。
+
+也就是说，GUI 不是让用户从零开始定义几何，而是优先让用户选择我已经写好的这几组算例。
+
+例如可以理解成：
+- 先选大类
+- 再选该大类下的 benchmark geometry / benchmark case
+- 再在此基础上允许修改少量加载参数
+
+### 3. 预设算例以现有 Julia 脚本为准
+当前已有的工况，以现有代码为准。GUI 里需要把这些工况组织进去，不需要 GUI 开发者自己创造新算例。
+
+我现在已有的算例主要分成以下四类：
+
+#### Elastic Fracture
+- SENT tension
+- SENS shear
+
+#### Elastic Fatigue
+- TPB fatigue
+- Offset double-notch fatigue
+
+#### Plastic Fracture
+- Flat grooved specimen
+- Double-notched monotonic specimen
+
+#### Plastic Fatigue
+- SENT elasto-plastic fatigue
+- CT elasto-plastic fatigue
+
+GUI 里可以把这些作为预设案例列出来。
+
+### 4. 参数修改范围：只开放“加载相关参数”为主
+对于每个预设算例：
+- 几何、材料、相场、疲劳、塑性等基础参数，默认使用我代码里的预设值
+- 用户不需要一上来就改所有参数
+- 最主要需要允许用户改的是加载相关参数
+
+建议优先开放这些：
+- 最大位移 / 最大载荷
+- 载荷比 `R`
+- 总步数 / 总循环数
+- 每周期子步数
+- 是否保存全部中间结果
+
+也就是说，GUI 的定位更偏向：
+- “基于现有 benchmark 的参数化运行器”
+而不是：
+- “完全自由建模软件”
+
+### 5. 运行时需要看到“实时过程”
+程序运行后，界面里需要能看到运行状态，而不是只显示一个卡住的窗口。
+
+建议至少包含：
+- 当前算例名称
+- 当前步数 / 当前循环数
+- 当前位移或载荷值
+- 当前反力或裂纹长度（如果该算例有）
+- 当前运行时间
+- 日志输出窗口（直接显示 Julia 终端输出）
+- 进度条
+
+### 6. 运行时需要能实时看到结果图
+我希望运行过程中，右侧或者下方有一个图像区域，可以刷新显示当前阶段的结果图。
+
+优先显示：
+- 损伤场 / phase-field 云图
+
+如果这个算例有其他关键场，也可以切换显示：
+- fatigue degradation field
+- plastic strain field
+- force-displacement curve
+- crack-length / cycle curve
+
+也就是说，我希望 GUI 里能有一个“结果视图切换”的下拉框或 tab。
+
+### 7. 结果后处理：最后要能生成视频
+每个算例运行结束后，我希望 GUI 里能：
+- 自动收集过程图片或过程 VTK 对应的截图
+- 生成一个演化视频
+- 视频可以保存到结果目录
+
+至少要支持：
+- `mp4` 或 `gif`
+
+即使第一版 GUI 不做很复杂的视频编辑，也至少要支持“把过程帧顺序拼接成视频”。
+
+### 8. 结果目录需要清晰、统一
+GUI 运行时产生的结果，仍然应该落到一个清晰的文件夹结构里。
+
+建议：
+- 每次运行自动新建一个结果文件夹
+- 文件夹名包含：类别 + 几何 + 时间戳
+- 文件夹里保存：
+  - 输入参数副本
+  - CSV 数据
+  - PNG 结果图
+  - VTK 结果
+  - 视频文件
+  - 终端日志
+
+这样后面查结果会非常方便。
+
+### 9. 需要有“运行模式切换”
+我希望 GUI 里能切换模式，例如：
+- `Preview mode`：快速试跑，少保存、少步数
+- `Full mode`：完整计算，按正式参数跑
+
+如果方便，也可以再加：
+- `Debug mode`：保存更多中间信息
+
+### 10. 需要支持“直接调用现有 Julia 脚本”
+GUI 最好不要重写求解器，而是：
+- 由界面收集参数
+- 生成一个临时参数文件或命令行参数
+- 然后直接调用现有的 Julia 脚本
+
+也就是说，GUI 是外壳，求解仍然由现有 Julia 代码负责。
+
+### 11. 第一版 GUI 的推荐实现顺序
+为了降低开发难度，我建议按下面顺序做：
+
+1. 先只接入一个最简单的算例
+   - `Elastic Fracture -> SENT tension`
+2. 能实现参数输入、启动运行、日志显示、结果图刷新
+3. 再逐步加入其他算例
+4. 最后再做视频生成、多结果切换和批量运行
+
+### 12. 我最关心的不是“界面华丽”，而是“稳定和好用”
+请优先保证：
+- 能稳定调用 Julia 脚本
+- 参数传递清晰
+- 结果目录清晰
+- 运行时不假死
+- 出错时能把错误日志显示出来
+
+界面风格可以简洁，但逻辑要清楚。
+
+### 13. 建议 GUI 开发时额外考虑的几个具体功能
+如果实现成本不高，我希望再加下面这些：
+- 历史运行记录列表
+- 一键打开结果文件夹
+- 一键打开最终 PNG / CSV / VTK
+- 运行结束后自动弹出结果预览
+- 参数模板保存 / 读取
+- 批量扫描模式（后期可加，不是第一优先）
+
+### 14. 关于“可视化内容”的建议
+GUI 里最终最重要的结果展示，不同类别建议优先显示：
+
+#### Elastic Fracture
+- damage field
+- force-displacement curve
+
+#### Elastic Fatigue
+- damage field
+- fatigue degradation field
+- crack length vs cycle
+
+#### Plastic Fracture
+- damage field
+- equivalent plastic strain field
+- force-displacement curve
+
+#### Plastic Fatigue
+- damage field
+- equivalent plastic strain field
+- crack length vs cycle
+
+所以 GUI 的结果面板，最好支持按算例类型自动切换默认显示内容。
+
