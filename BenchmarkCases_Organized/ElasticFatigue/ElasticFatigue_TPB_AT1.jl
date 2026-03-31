@@ -31,6 +31,7 @@ using .GuiRuntimeOverride
 
 const GUI_RUNTIME = load_runtime_override(ARGS)
 const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+const GUI_RUN_MODE = get_string(GUI_RUNTIME, "run_mode", "compute")
 
 # ============================================================================
 # Base benchmark parameters from the notebook / paper
@@ -456,18 +457,27 @@ function run_case(model, case_label::String, R_ratio::Float64, output_dir::Strin
     return NoofCycles, Yloccrack .- CH, Load, Displacement
 end
 
-function main()
+function prepare_mesh_assets()
     mkpath(OUTPUT_ROOT)
+    mesh_file = joinpath(OUTPUT_ROOT, "BeamWithNotchSymThreePtBending.msh")
+    create_mesh(mesh_file)
+    plot_mesh(mesh_file, OUTPUT_ROOT)
+    return mesh_file
+end
+
+function main()
     println("="^78)
     println("Length-scale insensitive TPB fatigue | AT1 baseline")
     println("="^78)
     @printf("  E = %.3f, nu = %.3f, Gc = %.6f, ls = %.4f\n", E_mat, ν_mat, Gc, ls)
     @printf("  alphaT = %.8f, U_MAX = %.5f, cycles = %d, steps/cycle = %d\n", αT, U_MAX, N_CYCLES, N_STEPS_PER_CYCLE)
 
-    mesh_file = joinpath(OUTPUT_ROOT, "BeamWithNotchSymThreePtBending.msh")
-    create_mesh(mesh_file)
+    mesh_file = prepare_mesh_assets()
+    if GUI_RUN_MODE == "mesh"
+        println("Mesh stage completed.")
+        return
+    end
     model = GmshDiscreteModel(mesh_file)
-    plot_mesh(mesh_file, OUTPUT_ROOT)
 
     p_crack = plot(xlabel="N", ylabel="Δa (mm)", title="TPB fatigue crack growth (AT1)", grid=true, size=(850,600), dpi=220)
     p_load = plot(xlabel="u (mm)", ylabel="Load", title="TPB load-displacement (AT1)", grid=true, size=(850,600), dpi=220)

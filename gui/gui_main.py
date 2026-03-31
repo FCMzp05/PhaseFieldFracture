@@ -289,12 +289,12 @@ class BatchJuliaWorker(QThread):
     status_update = pyqtSignal(str)
     finished_state = pyqtSignal(bool, str, str, str)
 
-    def __init__(self, case_id: str, script_path: Path, params_path: Path):
+    def __init__(self, case_id: str, script_path: Path, params_path: Path, run_mode: str):
         super().__init__()
         self.case_id = case_id
         self.script_path = script_path
         self.params_path = params_path
-        self.run_mode = "compute"
+        self.run_mode = run_mode
         self._process = None
         self._stop_requested = False
 
@@ -309,7 +309,8 @@ class BatchJuliaWorker(QThread):
             f"{conda_activate_prefix()}"
             f'julia "{self.script_path}" "{self.params_path}"'
         )
-        self.status_update.emit(f"Launching benchmark script: {self.script_path.name}")
+        stage_label = "mesh" if self.run_mode == "mesh" else "compute"
+        self.status_update.emit(f"Launching benchmark script: {self.script_path.name} [{stage_label}]")
         self._process = subprocess.Popen(
             ["bash", "-lc", cmd],
             cwd=str(REPO_ROOT),
@@ -336,7 +337,7 @@ class BatchJuliaWorker(QThread):
             elif return_code == 0:
                 success = True
                 self.progress_update.emit(100.0)
-                message = "Batch benchmark completed."
+                message = "Batch mesh completed." if self.run_mode == "mesh" else "Batch benchmark completed."
             else:
                 message = f"Benchmark exited with code {return_code}."
         except Exception as exc:
@@ -823,8 +824,6 @@ class MainWindow(QMainWindow):
             return None
 
         scan_summary = native_output_dir / "scan_summary.csv"
-        if not scan_summary.exists():
-            return None
 
         return self._build_batch_manifest(
             case,
@@ -832,14 +831,12 @@ class MainWindow(QMainWindow):
             mesh_paths=self._collect_files(native_output_dir, ("*.msh", "geometry_mesh.png")),
             snapshot_paths=self._collect_files(native_output_dir, ("damage_*.png",)),
             vtk_paths=self._collect_files(native_output_dir, ("result_*.vtu",)),
-            curve_csv_paths=[scan_summary, *self._collect_files(native_output_dir, ("force_displacement_*.csv",))],
+            curve_csv_paths=([scan_summary] if scan_summary.exists() else []) + self._collect_files(native_output_dir, ("force_displacement_*.csv",)),
         )
 
     def _build_offset_scan_manifest(self, case):
         native_output_dir = case.native_output_abspath
         if native_output_dir is None or not native_output_dir.exists():
-            return None
-        if not (native_output_dir / "scan_summary.csv").exists():
             return None
         return self._build_batch_manifest(
             case,
@@ -852,8 +849,6 @@ class MainWindow(QMainWindow):
     def _build_double_notched_manifest(self, case):
         native_output_dir = case.native_output_abspath
         if native_output_dir is None or not native_output_dir.exists():
-            return None
-        if not (native_output_dir / "scan_summary.csv").exists():
             return None
         return self._build_batch_manifest(
             case,
@@ -1346,10 +1341,10 @@ class MainWindow(QMainWindow):
         payload["mesh_file"] = str(self._current_state()["mesh_artifact_path"] or "")
         return payload
 
-    def _build_batch_runtime_payload(self, case, params):
+    def _build_batch_runtime_payload(self, case, params, run_mode: str):
         return {
             "case_id": case.case_id,
-            "run_mode": "compute",
+            "run_mode": run_mode,
             "smoke_mode": case.smoke_mode_default,
             "params": params,
         }
@@ -1400,8 +1395,8 @@ class MainWindow(QMainWindow):
             self.worker = ProtocolJuliaWorker(case.case_id, case.protocol_case_name, params_path, run_mode)
         else:
             assert case.script_abspath is not None
-            params_path = self.write_runtime_params(self._build_batch_runtime_payload(case, params))
-            self.worker = BatchJuliaWorker(case.case_id, case.script_abspath, params_path)
+            params_path = self.write_runtime_params(self._build_batch_runtime_payload(case, params, run_mode))
+            self.worker = BatchJuliaWorker(case.case_id, case.script_abspath, params_path, run_mode)
 
         self.worker.log_line.connect(self.append_log)
         self.worker.progress_update.connect(self.update_progress)

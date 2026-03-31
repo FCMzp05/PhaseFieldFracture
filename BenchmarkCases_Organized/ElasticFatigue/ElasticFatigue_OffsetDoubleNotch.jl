@@ -23,6 +23,7 @@ using .GuiRuntimeOverride
 
 const GUI_RUNTIME = load_runtime_override(ARGS)
 const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+const GUI_RUN_MODE = get_string(GUI_RUNTIME, "run_mode", "compute")
 
 # ============================================================================
 # Offset double-notch brittle fatigue benchmark
@@ -631,7 +632,30 @@ function run_all()
     end
 end
 
+function build_mesh_assets_only()
+    mkpath(OUTPUT_DIR)
+    println("=" ^ 78)
+    println("Offset double-notch brittle fatigue | mesh stage")
+    println("=" ^ 78)
+    for (case_label, y_left, y_right) in OFFSET_CASES
+        case_dir = joinpath(OUTPUT_DIR, case_label)
+        mkpath(case_dir)
+        mesh_file = create_mesh(case_dir, y_left, y_right)
+        model = GmshDiscreteModel(mesh_file)
+        Ω = Triangulation(model)
+        dΩ = Measure(Ω, 2)
+        cell_coords = get_cell_coordinates(Ω)
+        save_mesh_plot(cell_coords, joinpath(case_dir, "mesh.png"))
+        println("  mesh ready: $(case_label)")
+    end
+end
+
 function main()
+    if GUI_RUN_MODE == "mesh"
+        build_mesh_assets_only()
+        println("Mesh stage completed.")
+        return
+    end
     run_all()
 end
 

@@ -20,6 +20,7 @@ using .GuiRuntimeOverride
 
 const GUI_RUNTIME = load_runtime_override(ARGS)
 const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+const GUI_RUN_MODE = get_string(GUI_RUNTIME, "run_mode", "compute")
 
 # ============================================================================
 # Fang et al. (2019) flat grooved specimen
@@ -828,7 +829,29 @@ function run_simulation()
     println("\nScan summary saved: $(summary_csv)")
 end
 
+function build_mesh_assets_only()
+    mkpath(BASE_OUTPUT_DIR)
+    println("=" ^ 80)
+    println("Fang 2019 flat grooved specimen | mesh stage")
+    println("=" ^ 80)
+    for H_ratio in HISO_SCAN
+        case_dir = joinpath(BASE_OUTPUT_DIR, @sprintf("H%02dE", round(Int, 10 * H_ratio)))
+        mkpath(case_dir)
+        mesh_file = create_mesh(case_dir)
+        model = GmshDiscreteModel(mesh_file)
+        Ω = Triangulation(model)
+        writevtk(model, joinpath(case_dir, "mesh"))
+        plot_mesh_png(Ω, case_dir)
+        @printf("  mesh ready: H = %.1fE\n", H_ratio)
+    end
+end
+
 function main()
+    if GUI_RUN_MODE == "mesh"
+        build_mesh_assets_only()
+        println("Mesh stage completed.")
+        return
+    end
     run_simulation()
 end
 

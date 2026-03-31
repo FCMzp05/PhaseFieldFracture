@@ -20,6 +20,7 @@ using .GuiRuntimeOverride
 
 const GUI_RUNTIME = load_runtime_override(ARGS)
 const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+const GUI_RUN_MODE = get_string(GUI_RUNTIME, "run_mode", "compute")
 
 # ============================================================================
 # Ambati et al. (2015) / Miehe-style ductile phase-field benchmark
@@ -829,7 +830,28 @@ function run_simulation()
     println("\nScan summary saved: $(summary_csv)")
 end
 
+function build_mesh_assets_only()
+    mkpath(OUTPUT_DIR)
+    println("=" ^ 78)
+    println("Ductile double-notched specimen | mesh stage")
+    println("=" ^ 78)
+    for geom in CASES
+        case_dir = joinpath(OUTPUT_DIR, geom.tag)
+        mkpath(case_dir)
+        mesh_file = create_mesh(case_dir, geom)
+        model_mesh = GmshDiscreteModel(mesh_file)
+        writevtk(model_mesh, joinpath(case_dir, "mesh"))
+        plot_mesh_png(Triangulation(model_mesh), case_dir)
+        println("  mesh ready: $(geom.tag)")
+    end
+end
+
 function main()
+    if GUI_RUN_MODE == "mesh"
+        build_mesh_assets_only()
+        println("Mesh stage completed.")
+        return
+    end
     run_simulation()
 end
 

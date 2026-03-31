@@ -23,6 +23,7 @@
 - 已为新增 5 个 batch case 接通 GUI 参数编辑
 - 已实现 batch benchmark 的 runtime JSON 参数覆盖，不再只能跑脚本硬编码默认值
 - 已把新增 batch case 默认参数收敛到最小 smoke run，方便先跑通一小步
+- 已将 6 个 batch case 统一为 `Mesh -> Compute` 两阶段，先生成 mesh 预览再进入计算
 - 已实现 `RunManifest` 结果契约，GUI 后处理、导出和历史读取统一基于 manifest
 - 已把 `visual` 作为导出模板落地首个 exporter：
   - `Fang2019` damage panel
@@ -209,8 +210,9 @@ julia gui/gui_solver.jl gui/params_default.json
 - `SENT / SENS`：
   - 设置几何与网格参数
   - 生成对应算例的 `.msh` 和预览图
-- `Fang flat grooved scan`：
-  - 网格在 benchmark 计算阶段内部生成，不单独暴露 mesh run
+- 其余 6 个 batch case：
+  - 先生成 benchmark 自己的 `.msh` 和 mesh 预览图
+  - GUI 只读取并显示生成好的 mesh 图片
 
 ### 2. Compute
 
@@ -218,7 +220,7 @@ julia gui/gui_solver.jl gui/params_default.json
   - 在已生成网格上运行求解
   - 实时输出状态、进度、快照和曲线
 - 其余 6 个 batch case：
-  - 直接运行 batch benchmark
+  - 在已生成 mesh 之后再运行 batch benchmark
   - 在 GUI 里编辑共享参数后生成 runtime JSON
   - 实时显示日志，结束后统一扫描结果并生成 manifest
 

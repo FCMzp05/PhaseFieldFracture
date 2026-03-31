@@ -34,6 +34,7 @@ using .GuiRuntimeOverride
 
 const GUI_RUNTIME = load_runtime_override(ARGS)
 const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+const GUI_RUN_MODE = get_string(GUI_RUNTIME, "run_mode", "compute")
 
 # ============================================================================
 # 几何参数
@@ -1421,6 +1422,15 @@ function run_simulation()
     return cycle_history, crack_history, time_history
 end
 
+function build_mesh_assets_only()
+    mkpath(OUTPUT_DIR)
+    mesh_file = create_mesh()
+    model = GmshDiscreteModel(mesh_file)
+    writevtk(model, joinpath(OUTPUT_DIR, "mesh"))
+    plot_mesh(model)
+    println("Mesh stage completed.")
+end
+
 # ============================================================================
 # 绘图和数据保存
 # ============================================================================
@@ -1466,6 +1476,10 @@ function main()
     println("="^80)
     
     try
+        if GUI_RUN_MODE == "mesh"
+            build_mesh_assets_only()
+            return
+        end
         cycles, lengths, time_history = run_simulation()
         if length(cycles) > 0
             plot_results(cycles, lengths, time_history)

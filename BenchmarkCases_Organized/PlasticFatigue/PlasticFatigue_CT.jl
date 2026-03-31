@@ -31,6 +31,7 @@ using .GuiRuntimeOverride
 
 const GUI_RUNTIME = load_runtime_override(ARGS)
 const GUI_PARAMS = runtime_params(GUI_RUNTIME)
+const GUI_RUN_MODE = get_string(GUI_RUNTIME, "run_mode", "compute")
 
 # ============================================================================
 # 几何参数（与 Xie_fig9.jl 一致）
@@ -888,8 +889,19 @@ function plot_results(cycles, times, lengths, tip_x, smax_hist, alphap_hist, alp
     println("  数据已保存: $(data_file)")
 end
 
+function build_mesh_assets_only()
+    mkpath(OUTPUT_DIR)
+    mesh_file = create_CT_mesh(h_fine, h_coarse; output_dir = OUTPUT_DIR)
+    plot_mesh(mesh_file; output_dir = OUTPUT_DIR)
+    println("Mesh stage completed.")
+end
+
 function main()
     mkpath(OUTPUT_DIR)
+    if GUI_RUN_MODE == "mesh"
+        build_mesh_assets_only()
+        return
+    end
     cycles, times, lengths, tip_x, smax_hist, alphap_hist, alphabar_hist, fatigue_hist = run_simulation()
     plot_results(cycles, times, lengths, tip_x, smax_hist, alphap_hist, alphabar_hist, fatigue_hist)
 end

@@ -12,5 +12,5 @@ gui/__pycache__/
 gui/gui_results/
 results_*/
 
-gui_stop.flag
+gui/gui_stop.flag
 gui_params_*.json
