@@ -8,10 +8,19 @@
 
 ### 已完成
 
-- 已打通 `Elastic Fracture` 下的两个弹性断裂算例：
+- 已重建 `gui_envs` 运行环境，并补齐 `meshio`
+- 已把最新 Julia benchmark 代码统一整理到 `BenchmarkCases_Organized/`
+- 已把 GUI 从硬编码 `SENT / SENS` 收敛到“四大类 -> benchmark case”选择结构
+- 已接通 3 个可运行 case：
   - `SENT tension`
   - `SENS shear`
-- 已实现 `Mesh / Compute / Post-process` 三段式工作流
+  - `Fang flat grooved scan`
+- 已实现 `RunManifest` 结果契约，GUI 后处理、导出和历史读取统一基于 manifest
+- 已把 `visual` 作为导出模板落地首个 exporter：
+  - `Fang2019` damage panel
+  - `Fang2019` equivalent plastic strain panel
+  - `Fang2019` force-displacement comparison
+- 已保留 `SENT / SENS` 的 `Mesh / Compute / Post-process` 三段式工作流
 - 已实现：
   - 参数编辑
   - 网格生成
@@ -24,17 +33,11 @@
   - 导出当前算例结果
 - 当前可用入口：
   - `gui/gui_main.py`：稳定主入口
-  - `gui/gui_main_modern.py`：modern UI demo，复用同一套主流程
 
 ### 未完成
 
-- 首屏四大类入口：
-  - `Elastic Fracture`
-  - `Elastic Fatigue`
-  - `Plastic Fracture`
-  - `Plastic Fatigue`
-- 预设 benchmark case 分层选择
-- `Elastic Fatigue / Plastic Fracture / Plastic Fatigue` 三类算例接入
+- `Elastic Fatigue` 两个 case 的真实 GUI 接入
+- `Plastic Fracture / Plastic Fatigue` 其余 case 的真实 GUI 接入
 - 自定义 `.msh` 网格导入
 - `a-N` 曲线流程
 - 视频导出（`mp4` / `gif`）
@@ -94,12 +97,14 @@
 | `STEP / PROGRESS / SNAPSHOT / VTK / DONE` 实时更新 | 已完成 |
 | `Mesh / Compute / Post-process` 三阶段流程 | 已完成 |
 | `SENT / SENS` 参数化运行 | 已完成 |
+| 四大类入口 + case registry | 已完成 |
+| `RunManifest` 统一结果读取 | 已完成 |
+| `visual` 导出模板接入（Fang） | 已完成 |
+| `Plastic Fracture -> Fang flat grooved scan` | 已完成 |
 | 结果图、曲线、日志联动刷新 | 已完成 |
 | ParaView 打开最新结果 | 已完成 |
-| 首屏四类功能入口 | 未完成 |
-| benchmark case 分层导航 | 未完成 |
 | 疲劳算例 `CYCLE / a-N` | 未完成 |
-| 塑性与弹塑性疲劳算例 | 未完成 |
+| 其余塑性与弹塑性疲劳算例 | 未完成 |
 | 自定义网格导入 | 未完成 |
 | 视频生成 | 未完成 |
 | 统一时间戳结果目录 | 未完成 |
@@ -107,13 +112,13 @@
 
 ## 下一步
 
-下一步先做信息架构收敛，不先堆新算例：
+下一步优先补齐第二个 batch 系列，而不是回到旧的硬编码结构：
 
-1. 增加首屏四大类入口和第二层预设 case 选择。
-2. 在不破坏现有 `SENT / SENS` 工作流的前提下，把当前 GUI 从“直接选 `SENT / SENS`”过渡到“先选类别，再选 benchmark case”。
-3. 同步收敛参数面板，优先保留加载相关参数，其他参数作为预设或高级选项。
+1. 为 `Elastic Fatigue` 选定首个对齐 `visual` 的 case 并接入 batch runner。
+2. 把 `visual` exporter 接口继续扩到 `SENT / SENS / Li / CT`。
+3. 再考虑统一时间戳结果目录与 `a-N` 曲线专用交互。
 
-这一步完成后，再接入下一类算例，优先是 `Elastic Fatigue`。
+当前不再维护 `modern` 分支，只保留 `gui/gui_main.py`。
 
 ## 仓库结构
 
@@ -128,8 +133,8 @@ peng_pf_ui/
 ├── visual/
 └── gui/
     ├── gui_main.py
-    ├── gui_main_modern.py
-    ├── gui_main_modern.qss
+    ├── case_registry.py
+    ├── run_manifest.py
     ├── gui_solver.jl
     ├── params_default.json
     └── gui_results/            # runtime outputs, ignored by git
@@ -143,19 +148,21 @@ peng_pf_ui/
 
 该环境统一描述：
 
-- `conda` 环境名 `pf_env`
+- `conda` 环境名 `gui_envs`
 - Python 运行时版本
 - GUI 所需 Python 包
+- `visual` exporter 所需 Python 包
+- `meshio=5.3.5`
 - Julia 运行时版本
 - 当前确认过的 Julia 顶层包版本说明
 
-当前 GUI 默认通过激活后的 `pf_env` 启动 Julia 后端。
+当前 GUI 默认优先尝试 `gui_envs`，并兼容本机已有环境名 `pf_env` 与 `pf-env`。
 
 ## 安装
 
 ```bash
 conda env create -f environment.yml
-conda activate pf_env
+conda activate gui_envs
 ```
 
 ## 快速开始
@@ -164,19 +171,13 @@ conda activate pf_env
 
 ```bash
 eval "$(/home/dazhi_zhao/miniforge3/bin/conda shell.bash hook)"
-conda activate pf_env
+conda activate gui_envs
 ```
 
 启动稳定版 GUI：
 
 ```bash
 python gui/gui_main.py
-```
-
-启动 modern demo GUI：
-
-```bash
-python gui/gui_main_modern.py
 ```
 
 单独运行 Julia 后端：
@@ -189,17 +190,24 @@ julia gui/gui_solver.jl gui/params_default.json
 
 ### 1. Mesh
 
-- 设置几何与网格参数
-- 生成对应算例的 `.msh` 和预览图
+- `SENT / SENS`：
+  - 设置几何与网格参数
+  - 生成对应算例的 `.msh` 和预览图
+- `Fang flat grooved scan`：
+  - 网格在 benchmark 计算阶段内部生成，不单独暴露 mesh run
 
 ### 2. Compute
 
-- 在已生成网格上运行求解
-- 实时输出状态、进度、快照和曲线
+- `SENT / SENS`：
+  - 在已生成网格上运行求解
+  - 实时输出状态、进度、快照和曲线
+- `Fang flat grooved scan`：
+  - 直接运行 batch benchmark
+  - 实时显示日志，结束后统一扫描结果并生成 manifest / visual 导出
 
 ### 3. Post-process
 
-- 在 `Mesh / Damage / Displacement` 之间切换
+- 在 `Mesh / Damage / Displacement / Visual Export` 之间切换
 - 浏览历史图像结果
 - 打开最新 `VTK` 到 ParaView
 
@@ -215,8 +223,10 @@ julia gui/gui_solver.jl gui/params_default.json
 - damage snapshots
 - displacement image
 - force-displacement curve
+- visual exporter panels
 - `VTK` files
 - temporary runtime parameter files
+- run manifest JSON
 
 这些输出数据不作为源码的一部分，已通过 `.gitignore` 忽略。
 
@@ -236,5 +246,6 @@ julia gui_solver.jl params_default.json
 - `GUI_SPEC.md`
 - `environment.yml`
 - `gui/gui_main.py`
-- `gui/gui_main_modern.py`
+- `gui/case_registry.py`
+- `gui/run_manifest.py`
 - `gui/gui_solver.jl`
