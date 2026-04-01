@@ -2,9 +2,9 @@
 
 面向相场断裂 benchmark 的桌面 GUI。前端使用 `Python + PyQt5`，后端使用 `Julia`，目标是把“选定预设算例 -> 修改参数 -> 运行 -> 查看结果”稳定放进一个可调试的界面。
 
-详细需求仍保留在 `GUI_SPEC.md`；本 README 只保留当前可用事实、运行约定和下一阶段目标。
+## 当前状态
 
-## 当前完成
+### 已完成
 
 - 稳定入口为 `gui/gui_main.py`
 - GUI 已整理为四大类 case 选择：
@@ -25,8 +25,17 @@
 - 已支持参数编辑、日志显示、进度更新、曲线刷新、历史结果切换、最新 VTK 打开
 - 已接入 `RunManifest` 统一结果读取
 - 已接入 `visual` 导出链路，当前 `SENT / SENS / Fang` 可自动生成并显示导出图
+- 已统一绘图字体为 `Times New Roman`，并将刻度方向收敛为朝内
+- 已删除顶层历史 `Miehe2010_*` 原型脚本，`Elastic Fracture` 统一维护在 `gui/gui_solver.jl`
 
-## 当前未完成
+### 部分完成
+
+- 参数面板已按 `Material / Phase Field / Loading / Smoke / Geometry / Mesh` 分组，但仍是直接编辑，不是更强约束的“只开放少量加载参数”
+- 首层功能选择已并入顶部 `Category / Case` 两级选择，不是独立卡片入口页
+- `SENT / SENS` 支持实时日志、进度、快照、VTK、曲线刷新；batch case 当前以日志流和结束后回填结果为主
+- 结果视图切换已支持 `Mesh / Damage / Displacement / Visual Export`，但 fatigue / plastic fatigue 的专用可视化仍未补齐
+
+### 未完成
 
 - 自定义 `.msh` 网格导入
 - fatigue / plastic fatigue 专用 `visual exporter`
@@ -78,12 +87,9 @@ julia gui/gui_solver.jl gui/params_default.json
 ```text
 peng_pf_ui/
 ├── README.md
-├── GUI_SPEC.md
 ├── environment.yml
 ├── BenchmarkCases_Organized/
 ├── visual/
-├── Miehe2010_SENT_tension.jl
-├── Miehe2010_SENS_shear.jl
 └── gui/
     ├── gui_main.py
     ├── gui_solver.jl

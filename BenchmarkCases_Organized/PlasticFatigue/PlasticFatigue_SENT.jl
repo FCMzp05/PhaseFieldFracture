@@ -29,6 +29,16 @@ using Plots
 gr()
 using DelimitedFiles
 
+const PLOT_FONT_FAMILY = "Times New Roman"
+default(
+    fontfamily=PLOT_FONT_FAMILY,
+    titlefontfamily=PLOT_FONT_FAMILY,
+    guidefontfamily=PLOT_FONT_FAMILY,
+    tickfontfamily=PLOT_FONT_FAMILY,
+    legend_font_family=PLOT_FONT_FAMILY,
+    tick_direction=:in,
+)
+
 include(joinpath(@__DIR__, "..", "_gui_runtime_override.jl"))
 using .GuiRuntimeOverride
 
@@ -648,13 +658,16 @@ function plot_mesh(model)
         
         p = plot(aspect_ratio=:equal, size=(700, 700), dpi=300,
                 xlabel="x (mm)", ylabel="y (mm)", legend=false, grid=false,
-                title="SENT Mesh ($(num_cells(Ω)) elements)")
+                title="SENT Mesh ($(num_cells(Ω)) elements)", framestyle=:box,
+                xmirror=false, ymirror=false, guidefontsize=15, tickfontsize=8,
+                tick_direction=:in, foreground_color_axis=:black,
+                foreground_color_border=:black, foreground_color_guide=:black)
         
         for i_cell in 1:num_cells(Ω)
             verts = cell_coords[i_cell]
             xs = [v[1] for v in verts]
             ys = [v[2] for v in verts]
-            plot!(p, Shape(xs, ys), fillcolor=:white, linecolor=:black, linewidth=0.3)
+            plot!(p, Shape(xs, ys), fillcolor=:white, linecolor=:gray55, linewidth=0.3)
         end
         
         savefig(p, joinpath(OUTPUT_DIR, "mesh.png"))

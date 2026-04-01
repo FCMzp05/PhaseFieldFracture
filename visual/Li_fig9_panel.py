@@ -3,9 +3,18 @@ from collections import defaultdict
 
 import meshio
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.collections as mc
 from scipy.spatial import cKDTree
+
+mpl.rcParams.update({
+    'font.family':      'Times New Roman',
+    'font.serif':       ['Times New Roman'],
+    'mathtext.fontset': 'stix',
+    'xtick.direction':  'in',
+    'ytick.direction':  'in',
+})
 
 BASE = Path('results_SENT_FULLY_CORRECTED')
 
@@ -103,11 +112,13 @@ from matplotlib.gridspec import GridSpec
 import meshio
 
 mpl.rcParams.update({
-    'font.family':      'serif',
-    'font.serif':       ['Times New Roman', 'Times', 'DejaVu Serif'],
+    'font.family':      'Times New Roman',
+    'font.serif':       ['Times New Roman'],
     'mathtext.fontset': 'stix',
     'font.size':        32,
     'figure.dpi':       200,
+    'xtick.direction':  'in',
+    'ytick.direction':  'in',
 })
 
 BASE      = Path('results_SENT_FULLY_CORRECTED')
@@ -273,11 +284,13 @@ import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
 
 mpl.rcParams.update({
-    'font.family':      'serif',
-    'font.serif':       ['Times New Roman', 'Times', 'DejaVu Serif'],
+    'font.family':      'Times New Roman',
+    'font.serif':       ['Times New Roman'],
     'mathtext.fontset': 'stix',
     'font.size':        30,
     'figure.dpi':       200,
+    'xtick.direction':  'in',
+    'ytick.direction':  'in',
 })
 
 BASE = Path('results_SENT_FULLY_CORRECTED')
@@ -405,11 +418,13 @@ import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
 
 mpl.rcParams.update({
-    'font.family':      'serif',
-    'font.serif':       ['Times New Roman', 'Times', 'DejaVu Serif'],
+    'font.family':      'Times New Roman',
+    'font.serif':       ['Times New Roman'],
     'mathtext.fontset': 'stix',
     'font.size':        28,
     'figure.dpi':       200,
+    'xtick.direction':  'in',
+    'ytick.direction':  'in',
 })
 
 BLUE  = '#2166AC'

@@ -26,6 +26,16 @@ using Gmsh: gmsh
 ENV["GKSwstype"] = "100"
 gr(show = false)
 
+const PLOT_FONT_FAMILY = "Times New Roman"
+default(
+    fontfamily=PLOT_FONT_FAMILY,
+    titlefontfamily=PLOT_FONT_FAMILY,
+    guidefontfamily=PLOT_FONT_FAMILY,
+    tickfontfamily=PLOT_FONT_FAMILY,
+    legend_font_family=PLOT_FONT_FAMILY,
+    tick_direction=:in,
+)
+
 include(joinpath(@__DIR__, "..", "_gui_runtime_override.jl"))
 using .GuiRuntimeOverride
 
@@ -239,7 +249,10 @@ function plot_mesh(mesh_file::String, output_dir::String)
     end
     tri_nodes = gmsh.model.mesh.getElementsByType(2)[2]
     p = plot(aspect_ratio=:equal, size=(900,300), dpi=200, xlabel="x (mm)", ylabel="y (mm)",
-             legend=false, grid=false, title="TPB mesh")
+             legend=false, grid=false, title="TPB mesh", framestyle=:box,
+             xmirror=false, ymirror=false, guidefontsize=15, tickfontsize=8,
+             tick_direction=:in, foreground_color_axis=:black,
+             foreground_color_border=:black, foreground_color_guide=:black)
     for i in 1:(length(tri_nodes) ÷ 3)
         ids = tri_nodes[3*(i-1)+1:3*i]
         pts = [node_map[Int(id)] for id in ids]

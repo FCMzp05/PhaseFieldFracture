@@ -88,7 +88,14 @@ JULIA_COMMAND = "julia"
 GUI_ENVS_JULIA_PROJECT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia/environments/gui_envs"
 GUI_ENVS_JULIA_DEPOT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia"
 
-mpl.rcParams["font.family"] = APP_FONT_FAMILY
+mpl.rcParams.update(
+    {
+        "font.family": APP_FONT_FAMILY,
+        "font.serif": [APP_FONT_FAMILY],
+        "xtick.direction": "in",
+        "ytick.direction": "in",
+    }
+)
 
 
 def mesh_file_name(protocol_case_name: str) -> str:
@@ -159,6 +166,7 @@ class CurveCanvas(FigureCanvas):
         self.axes.plot(x_values, y_values, color="#1f77b4", linewidth=2.0)
         self.axes.set_xlabel(self._x_label)
         self.axes.set_ylabel(self._y_label)
+        self.axes.tick_params(direction="in")
         self.axes.grid(True)
         for spine in self.axes.spines.values():
             spine.set_visible(True)

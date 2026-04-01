@@ -13,33 +13,14 @@ ENV["GKSwstype"] = "100"
 using Plots
 gr(show=false)
 
-function resolve_plot_font_family()
-    font_dirs = filter(isdir, [
-        "/usr/share/fonts",
-        "/usr/local/share/fonts",
-        joinpath(homedir(), ".fonts"),
-        joinpath(homedir(), ".local", "share", "fonts"),
-    ])
-    for font_dir in font_dirs
-        for (root, _, files) in walkdir(font_dir)
-            for file in files
-                lower_name = lowercase(file)
-                if occursin("times", lower_name) && endswith(lower_name, ".ttf")
-                    return "Times New Roman"
-                end
-            end
-        end
-    end
-    return "Times"
-end
-
-const PLOT_FONT_FAMILY = resolve_plot_font_family()
+const PLOT_FONT_FAMILY = "Times New Roman"
 default(
     fontfamily=PLOT_FONT_FAMILY,
     titlefontfamily=PLOT_FONT_FAMILY,
     guidefontfamily=PLOT_FONT_FAMILY,
     tickfontfamily=PLOT_FONT_FAMILY,
     legend_font_family=PLOT_FONT_FAMILY,
+    tick_direction=:in,
 )
 
 const CASE_SENT = "SENT"
@@ -456,7 +437,10 @@ function plot_mesh(mesh_file::String, out_file::String)
     tri_nodes = gmsh.model.mesh.getElementsByType(2)[2]
     p = plot(aspect_ratio=:equal, size=(700, 700), dpi=200,
              xlabel="x (mm)", ylabel="y (mm)", legend=false, grid=false,
-             title="", framestyle=:box)
+             title="", framestyle=:box, xmirror=false, ymirror=false,
+             guidefontsize=15, tickfontsize=8, tick_direction=:in,
+             foreground_color_axis=:black, foreground_color_border=:black,
+             foreground_color_guide=:black)
 
     for i in 1:(length(quad_nodes) ÷ 4)
         ids = quad_nodes[4*(i-1)+1:4*i]

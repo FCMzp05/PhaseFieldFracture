@@ -18,6 +18,16 @@ ENV["GKSwstype"] = "100"
 using Plots
 gr(show=false)
 
+const PLOT_FONT_FAMILY = "Times New Roman"
+default(
+    fontfamily=PLOT_FONT_FAMILY,
+    titlefontfamily=PLOT_FONT_FAMILY,
+    guidefontfamily=PLOT_FONT_FAMILY,
+    tickfontfamily=PLOT_FONT_FAMILY,
+    legend_font_family=PLOT_FONT_FAMILY,
+    tick_direction=:in,
+)
+
 include(joinpath(@__DIR__, "..", "_gui_runtime_override.jl"))
 using .GuiRuntimeOverride
 
@@ -316,12 +326,15 @@ end
 function save_mesh_plot(cell_coords, out_file)
     p = plot(aspect_ratio=:equal, size=(560, 1080), dpi=PNG_DPI,
              xlabel="x (mm)", ylabel="y (mm)", title="Offset double-notch mesh",
-             legend=false, grid=false, framestyle=:box)
+             legend=false, grid=false, framestyle=:box,
+             xmirror=false, ymirror=false, guidefontsize=15, tickfontsize=8,
+             tick_direction=:in, foreground_color_axis=:black,
+             foreground_color_border=:black, foreground_color_guide=:black)
     for pts in cell_coords
         xs = [v[1] for v in pts]
         ys = [v[2] for v in pts]
         plot!(p, Shape(xs, ys), fillcolor=:white, fillalpha=0.0,
-              linecolor=:gray70, linewidth=0.2, label="")
+              linecolor=:gray55, linewidth=0.2, label="")
     end
     savefig(p, out_file)
     closeall()

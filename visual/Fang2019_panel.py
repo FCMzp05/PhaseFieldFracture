@@ -8,11 +8,13 @@ from matplotlib.gridspec import GridSpec
 import meshio
 
 mpl.rcParams.update({
-    'font.family':      'serif',
-    'font.serif':       ['Times New Roman', 'Times', 'DejaVu Serif'],
+    'font.family':      'Times New Roman',
+    'font.serif':       ['Times New Roman'],
     'mathtext.fontset': 'stix',
     'font.size':        32,
     'figure.dpi':       200,
+    'xtick.direction':  'in',
+    'ytick.direction':  'in',
 })
 
 BASE      = Path('results_Fang2019_flat_grooved_scan')
@@ -285,11 +287,13 @@ import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
 
 mpl.rcParams.update({
-    'font.family':      'serif',
-    'font.serif':       ['Times New Roman', 'Times', 'DejaVu Serif'],
+    'font.family':      'Times New Roman',
+    'font.serif':       ['Times New Roman'],
     'mathtext.fontset': 'stix',
     'font.size':        28,
     'figure.dpi':       200,
+    'xtick.direction':  'in',
+    'ytick.direction':  'in',
 })
 
 BASE = Path('results_Fang2019_flat_grooved_scan')

@@ -15,6 +15,16 @@ ENV["GKSwstype"] = "100"
 using Plots
 gr(show=false)
 
+const PLOT_FONT_FAMILY = "Times New Roman"
+default(
+    fontfamily=PLOT_FONT_FAMILY,
+    titlefontfamily=PLOT_FONT_FAMILY,
+    guidefontfamily=PLOT_FONT_FAMILY,
+    tickfontfamily=PLOT_FONT_FAMILY,
+    legend_font_family=PLOT_FONT_FAMILY,
+    tick_direction=:in,
+)
+
 include(joinpath(@__DIR__, "..", "_gui_runtime_override.jl"))
 using .GuiRuntimeOverride
 
@@ -511,13 +521,16 @@ function plot_mesh_png(Ω, output_dir)
     p = plot(aspect_ratio=:equal, size=(650, 650), dpi=220,
              xlabel="x (mm)", ylabel="y (mm)",
              title="Double-notched ductile specimen mesh ($(nc) elements)",
-             legend=false, grid=false)
+             legend=false, grid=false, framestyle=:box,
+             xmirror=false, ymirror=false, guidefontsize=15, tickfontsize=8,
+             tick_direction=:in, foreground_color_axis=:black,
+             foreground_color_border=:black, foreground_color_guide=:black)
 
     for i in 1:nc
         verts = cell_coords[i]
         xs = [v[1] for v in verts]; push!(xs, xs[1])
         ys = [v[2] for v in verts]; push!(ys, ys[1])
-        plot!(p, xs, ys, linecolor=:black, linewidth=0.15, label="")
+        plot!(p, xs, ys, linecolor=:gray55, linewidth=0.15, label="")
     end
 
     savefig(p, joinpath(output_dir, "mesh_double_notched.png"))

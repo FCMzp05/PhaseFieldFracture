@@ -48,6 +48,16 @@ using Plots
 gr(show=false)
 using DelimitedFiles
 
+const PLOT_FONT_FAMILY = "Times New Roman"
+default(
+    fontfamily=PLOT_FONT_FAMILY,
+    titlefontfamily=PLOT_FONT_FAMILY,
+    guidefontfamily=PLOT_FONT_FAMILY,
+    tickfontfamily=PLOT_FONT_FAMILY,
+    legend_font_family=PLOT_FONT_FAMILY,
+    tick_direction=:in,
+)
+
 # ============================================================================
 # 几何参数（与 SENT 相同）
 # ============================================================================
@@ -257,7 +267,10 @@ function plot_mesh(mesh_file::String)
 
     p = plot(aspect_ratio=:equal, size=(700,700), dpi=200,
              xlabel="x (mm)", ylabel="y (mm)", legend=false, grid=false,
-             title="SENS Mesh  ($(n_cells) elements)")
+             title="SENS Mesh  ($(n_cells) elements)", framestyle=:box,
+             xmirror=false, ymirror=false, guidefontsize=15, tickfontsize=8,
+             tick_direction=:in, foreground_color_axis=:black,
+             foreground_color_border=:black, foreground_color_guide=:black)
 
     for i in 1:n_quads
         ids = quad_nodes[4*(i-1)+1:4*i]

@@ -7,11 +7,13 @@ import meshio
 import csv
 
 mpl.rcParams.update({
-    'font.family':      'serif',
+    'font.family':      'Times New Roman',
     'font.serif':       ['Times New Roman'],
     'mathtext.fontset': 'stix',
     'font.size':        14,
     'figure.dpi':       200,
+    'xtick.direction':  'in',
+    'ytick.direction':  'in',
 })
 
 BASE   = '/Users/zhangpeng/Desktop/PFM-paper/visualization/results_CT_Xie_Chaboche_isothermal/'
@@ -119,9 +121,11 @@ import matplotlib.collections as mc
 from scipy.spatial import cKDTree
 
 mpl.rcParams.update({
-    'font.family': 'serif',
+    'font.family': 'Times New Roman',
     'font.serif':  ['Times New Roman'],
     'figure.dpi':  200,
+    'xtick.direction': 'in',
+    'ytick.direction': 'in',
 })
 
 msh_path = Path('results_CT_Xie_Chaboche_isothermal/CT_mesh.msh')
@@ -221,7 +225,7 @@ import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
 
 mpl.rcParams.update({
-    'font.family':        'serif',
+    'font.family':        'Times New Roman',
     'font.serif':         ['Times New Roman'],
     'mathtext.fontset':   'stix',
     'font.size':          20,

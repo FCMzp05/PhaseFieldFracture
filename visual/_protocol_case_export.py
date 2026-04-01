@@ -14,11 +14,13 @@ import numpy as np
 
 mpl.rcParams.update(
     {
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
+        "font.family": "Times New Roman",
+        "font.serif": ["Times New Roman"],
         "mathtext.fontset": "stix",
         "font.size": 18,
         "figure.dpi": 180,
+        "xtick.direction": "in",
+        "ytick.direction": "in",
     }
 )
 
