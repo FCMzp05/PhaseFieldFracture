@@ -118,7 +118,7 @@ SERIF_FONT_FAMILY_CANDIDATES = (
 )
 APP_FONT_FAMILY = PREFERRED_SERIF_FONT_FAMILY
 APP_FONT_SIZE = 17
-TITLE_FONT_SIZE = 34
+TITLE_FONT_SIZE = 40
 PLOT_FONT_SIZE = 16
 ANIMATION_FAST_MS = 150
 ANIMATION_MEDIUM_MS = 220
@@ -127,7 +127,7 @@ ANIMATION_TOAST_STAY_MS = 2200
 JULIA_COMMAND = "julia"
 GUI_ENVS_JULIA_PROJECT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia/environments/gui_envs"
 GUI_ENVS_JULIA_DEPOT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia"
-SUBTITLE_FONT_SIZE = 16
+SUBTITLE_FONT_SIZE = 18
 TOP_LEVEL_RESULT_PATTERNS = (
     "mesh_*.msh",
     "mesh_*.png",
@@ -138,6 +138,26 @@ TOP_LEVEL_RESULT_PATTERNS = (
     "result*.vtu",
     "snap*.png",
 )
+CASE_HEADER_SUMMARIES = {
+    "sent_tension": "Single-edge notched tension benchmark for elastic phase-field fracture under monotonic tensile loading.",
+    "sens_shear": "Single-edge notched shear benchmark for elastic phase-field fracture under in-plane shear loading.",
+    "tpb_fatigue": "Three-point bending fatigue benchmark for phase-field crack initiation and growth under cyclic loading.",
+    "offset_double_notch_fatigue": "Offset double-notch fatigue benchmark for competing crack-path evolution under cyclic loading.",
+    "fang_flat_grooved_scan": "Flat grooved scan benchmark for elasto-plastic phase-field fracture with geometry-parameter comparison.",
+    "double_notched_monotonic": "Double-notched monotonic benchmark for elasto-plastic fracture response and crack-path competition.",
+    "sent_elasto_plastic_fatigue": "Single-edge notched tension fatigue benchmark for elasto-plastic phase-field crack-growth assessment.",
+    "ct_elasto_plastic_fatigue": "Compact tension fatigue benchmark for elasto-plastic phase-field crack-growth assessment.",
+}
+CASE_BADGE_LABELS = {
+    "sent_tension": "Single-Edge Notch · Monotonic Tension",
+    "sens_shear": "Single-Edge Notch · In-Plane Shear",
+    "tpb_fatigue": "Three-Point Bending · Fatigue",
+    "offset_double_notch_fatigue": "Offset Double-Notch · Fatigue",
+    "fang_flat_grooved_scan": "Flat Grooved · Parameter Scan",
+    "double_notched_monotonic": "Double-Notched · Monotonic",
+    "sent_elasto_plastic_fatigue": "SENT · Elasto-Plastic Fatigue",
+    "ct_elasto_plastic_fatigue": "CT · Elasto-Plastic Fatigue",
+}
 
 mpl.rcParams.update(
     {
@@ -335,6 +355,9 @@ class CurveCanvas(FigureCanvas):
         super().__init__(self.figure)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumHeight(250)
+        self.figure.patch.set_facecolor("#f8fbfe")
+        self.axes.set_facecolor("#f7fbfe")
+        self.setStyleSheet("background: transparent;")
         self.update_curve([], [])
 
     def set_curve_kind(self, curve_kind: str):
@@ -346,6 +369,8 @@ class CurveCanvas(FigureCanvas):
 
     def update_curves(self, series):
         self.axes.clear()
+        self.figure.patch.set_facecolor("#f8fbfe")
+        self.axes.set_facecolor("#f7fbfe")
         if not series:
             series = [{"x": [], "y": [], "label": ""}]
         for index, item in enumerate(series):
@@ -363,12 +388,17 @@ class CurveCanvas(FigureCanvas):
             self.axes.plot(x_values, y_values, **line_kwargs)
         self.axes.set_xlabel(self._x_label)
         self.axes.set_ylabel(self._y_label)
-        self.axes.tick_params(direction="in")
-        self.axes.grid(True)
+        self.axes.tick_params(direction="in", colors="#203247")
+        self.axes.grid(True, color="#bfd0df", linewidth=1.0)
         for spine in self.axes.spines.values():
             spine.set_visible(True)
+            spine.set_color("#2f4258")
+            spine.set_linewidth(1.1)
         if len(series) > 1 and any(item.get("label") for item in series):
-            self.axes.legend()
+            legend = self.axes.legend()
+            if legend is not None:
+                legend.get_frame().set_facecolor("#f7fbfe")
+                legend.get_frame().set_edgecolor("#c2cfdb")
         self.figure.subplots_adjust(left=0.16, right=0.97, bottom=0.18, top=0.95)
         self.draw_idle()
 
@@ -383,38 +413,7 @@ class ImagePreviewWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
-        self.zoom_in_button = self._build_control_button("Zoom In", self.zoom_in)
-        self.zoom_out_button = self._build_control_button("Zoom Out", self.zoom_out)
-        self.fit_button = self._build_control_button("Fit View", self.fit_to_view)
-        self.actual_size_button = self._build_control_button("Actual Size", self.show_actual_size)
-        self.scroll_up_button = self._build_control_button("Up", self.scroll_up)
-        self.scroll_down_button = self._build_control_button("Down", self.scroll_down)
-
-        toolbar = QWidget()
-        toolbar.setObjectName("PreviewToolbar")
-        toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(0, 0, 0, 0)
-        toolbar_layout.setSpacing(10)
-        toolbar_layout.addWidget(self._build_control_group("Zoom", (self.zoom_in_button, self.zoom_out_button)))
-        toolbar_layout.addWidget(self._build_control_group("View", (self.fit_button, self.actual_size_button)))
-        toolbar_layout.addWidget(self._build_control_group("Pan", (self.scroll_up_button, self.scroll_down_button)))
-        toolbar_layout.addStretch(1)
-
-        status_pill = QWidget()
-        status_pill.setObjectName("PreviewStatusPill")
-        status_layout = QVBoxLayout(status_pill)
-        status_layout.setContentsMargins(12, 8, 12, 8)
-        status_layout.setSpacing(2)
-        status_title = QLabel("Scale")
-        status_title.setObjectName("PreviewToolbarMetaLabel")
-        status_layout.addWidget(status_title)
-        self.zoom_status_label = QLabel("Fit")
-        self.zoom_status_label.setObjectName("PreviewZoomLabel")
-        status_layout.addWidget(self.zoom_status_label)
-        toolbar_layout.addWidget(status_pill, alignment=Qt.AlignVCenter)
-        layout.addWidget(toolbar)
+        layout.setSpacing(0)
 
         self.image_label = QLabel(placeholder_text)
         self.image_label.setObjectName("PreviewContentLabel")
@@ -429,37 +428,14 @@ class ImagePreviewWidget(QWidget):
         self.scroll_area.setFrameShape(QScrollArea.NoFrame)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setFocusPolicy(Qt.StrongFocus)
+        self.scroll_area.viewport().setFocusPolicy(Qt.StrongFocus)
+        self.scroll_area.viewport().installEventFilter(self)
         layout.addWidget(self.scroll_area, stretch=1)
 
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumHeight(420)
         self._update_controls()
-
-    def _build_control_button(self, text: str, callback):
-        button = QPushButton(text)
-        button.setProperty("variant", "secondary")
-        button.setMinimumWidth(86)
-        button.clicked.connect(callback)
-        return button
-
-    def _build_control_group(self, title: str, buttons):
-        container = QWidget()
-        container.setObjectName("PreviewToolbarGroup")
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(12, 8, 12, 8)
-        container_layout.setSpacing(6)
-
-        title_label = QLabel(title)
-        title_label.setObjectName("PreviewToolbarTitle")
-        container_layout.addWidget(title_label)
-
-        button_row = QHBoxLayout()
-        button_row.setContentsMargins(0, 0, 0, 0)
-        button_row.setSpacing(8)
-        for button in buttons:
-            button_row.addWidget(button)
-        container_layout.addLayout(button_row)
-        return container
 
     def has_image(self) -> bool:
         return not self._base_pixmap.isNull()
@@ -472,7 +448,6 @@ class ImagePreviewWidget(QWidget):
         self.image_label.setPixmap(QPixmap())
         self.image_label.setText(placeholder_text)
         self.image_label.adjustSize()
-        self.zoom_status_label.setText("Fit")
         self._update_controls()
 
     def set_image(self, image_path: Path | None, placeholder_text: str):
@@ -556,7 +531,29 @@ class ImagePreviewWidget(QWidget):
         self.image_label.setPixmap(scaled)
         self.image_label.resize(scaled.size())
         self.image_label.adjustSize()
-        self.zoom_status_label.setText(scale_text)
+        self.scroll_area.viewport().setToolTip(
+            f"Ctrl+Wheel: zoom\nDouble-click: fit / actual size\nCurrent Scale: {scale_text}"
+        )
+
+    def _handle_ctrl_wheel_zoom(self, event):
+        delta = event.angleDelta().y() or event.angleDelta().x()
+        if delta == 0:
+            return
+
+        cursor_pos = event.pos()
+        h_bar = self.scroll_area.horizontalScrollBar()
+        v_bar = self.scroll_area.verticalScrollBar()
+        old_scale = max(self._current_scale_factor(), 1.0e-6)
+        old_h = h_bar.value()
+        old_v = v_bar.value()
+
+        scale_factor = old_scale * (1.15 if delta > 0 else 1.0 / 1.15)
+        self._set_manual_scale(scale_factor)
+        new_scale = max(self._current_scale_factor(), 1.0e-6)
+        scale_ratio = new_scale / old_scale
+
+        h_bar.setValue(int(round((old_h + cursor_pos.x()) * scale_ratio - cursor_pos.x())))
+        v_bar.setValue(int(round((old_v + cursor_pos.y()) * scale_ratio - cursor_pos.y())))
 
     def _scroll_vertically(self, direction: int):
         scrollbar = self.scroll_area.verticalScrollBar()
@@ -564,16 +561,20 @@ class ImagePreviewWidget(QWidget):
         scrollbar.setValue(scrollbar.value() + direction * step)
 
     def _update_controls(self):
-        enabled = self.has_image()
-        for button in (
-            self.zoom_in_button,
-            self.zoom_out_button,
-            self.fit_button,
-            self.actual_size_button,
-            self.scroll_up_button,
-            self.scroll_down_button,
-        ):
-            button.setEnabled(enabled)
+        self.scroll_area.viewport().setToolTip("Ctrl+Wheel: zoom\nDouble-click: fit / actual size")
+
+    def eventFilter(self, watched, event):
+        if watched is self.scroll_area.viewport():
+            if event.type() == QEvent.Wheel and self.has_image() and (event.modifiers() & Qt.ControlModifier):
+                self._handle_ctrl_wheel_zoom(event)
+                return True
+            if event.type() == QEvent.MouseButtonDblClick and self.has_image():
+                if self._fit_to_view:
+                    self.show_actual_size()
+                else:
+                    self.fit_to_view()
+                return True
+        return super().eventFilter(watched, event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -929,49 +930,39 @@ class MainWindow(QMainWindow):
         return "Waiting for compute stage."
 
     def _case_header_summary(self, case):
-        workflow_text = (
-            "Mesh -> Compute -> Post-Process"
-            if case.mesh_stage_enabled
-            else "Compute-Built Mesh -> Post-Process"
-        )
-        backend_text = (
-            "Real-Time Protocol Solver"
-            if case.backend_mode == "protocol_julia"
-            else "Batch Benchmark Runner"
-        )
-        return (
-            f"Current Case: {case.category_label} / {case.display_name}. "
-            f"Workflow: {workflow_text}. Backend: {backend_text}."
+        return CASE_HEADER_SUMMARIES.get(
+            case.case_id,
+            f"{case.display_name} benchmark in {case.category_label} with mesh, solve, and post-process workflow.",
         )
 
     def _case_badge_text(self, case):
-        backend_text = "Real-Time Protocol" if case.backend_mode == "protocol_julia" else "Batch Benchmark"
-        mesh_text = "Mesh Stage" if case.mesh_stage_enabled else "Compute-Built Mesh"
-        return f"{backend_text} · {mesh_text}"
+        return CASE_BADGE_LABELS.get(case.case_id, f"{case.category_label} · {case.display_name}")
 
     def _build_ui(self):
         root = QWidget()
         root.setObjectName("AppRoot")
         root_layout = QVBoxLayout(root)
         root_layout.setContentsMargins(18, 18, 18, 18)
-        root_layout.setSpacing(14)
+        root_layout.setSpacing(16)
 
         header_card = QWidget()
         header_card.setObjectName("HeaderCard")
         header_layout = QVBoxLayout(header_card)
-        header_layout.setContentsMargins(20, 18, 20, 16)
-        header_layout.setSpacing(12)
+        header_layout.setContentsMargins(24, 22, 24, 20)
+        header_layout.setSpacing(14)
 
         top_row = QHBoxLayout()
         top_row.setSpacing(16)
         self.header_top_layout = top_row
 
         title_block = QWidget()
+        title_block.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         title_layout = QVBoxLayout(title_block)
         title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(4)
+        title_layout.setSpacing(8)
         self.window_title_label = QLabel("Phase-Field Fracture Workbench")
         self.window_title_label.setObjectName("WindowTitleLabel")
+        self.window_title_label.setWordWrap(True)
         title_layout.addWidget(self.window_title_label)
         self.window_subtitle_label = QLabel("")
         self.window_subtitle_label.setObjectName("WindowSubtitleLabel")
@@ -998,7 +989,8 @@ class MainWindow(QMainWindow):
 
         self.case_status_badge = QLabel("")
         self.case_status_badge.setObjectName("CaseStatusBadge")
-        self.case_status_badge.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.case_status_badge.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.case_status_badge.setWordWrap(False)
         badge_row = QHBoxLayout()
         badge_row.setContentsMargins(0, 0, 0, 0)
         badge_row.setSpacing(0)
@@ -1209,15 +1201,32 @@ class MainWindow(QMainWindow):
         right_panel.setObjectName("PreviewCard")
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(18, 18, 18, 18)
-        right_layout.setSpacing(12)
+        right_layout.setSpacing(16)
 
         right_layout.addWidget(self._create_section_label("Live Preview"))
-        self.damage_label = self._create_image_label("Damage snapshot will appear here.")
+        damage_card = QWidget()
+        damage_card.setObjectName("NestedPreviewCard")
+        damage_layout = QVBoxLayout(damage_card)
+        damage_layout.setContentsMargins(16, 14, 16, 16)
+        damage_layout.setSpacing(10)
+        damage_layout.addWidget(self._create_section_label("Damage Contour"))
+        self.damage_label = self._create_image_viewer("Damage snapshot will appear here.")
         self.damage_label.setMinimumHeight(320)
+        damage_layout.addWidget(self.damage_label, stretch=1)
+
+        curve_card = QWidget()
+        curve_card.setObjectName("NestedPreviewCard")
+        curve_layout = QVBoxLayout(curve_card)
+        curve_layout.setContentsMargins(16, 14, 16, 16)
+        curve_layout.setSpacing(10)
+        curve_layout.addWidget(self._create_section_label("Live Curve"))
         self.curve_canvas = CurveCanvas()
         self.curve_canvas.setObjectName("CurveCanvas")
-        right_layout.addWidget(self.damage_label, stretch=3)
-        right_layout.addWidget(self.curve_canvas, stretch=2)
+        curve_layout.addWidget(self.curve_canvas, stretch=1)
+        right_layout.addWidget(damage_card, stretch=3)
+        right_layout.addWidget(curve_card, stretch=0)
+        self.compute_damage_card = damage_card
+        self.compute_curve_card = curve_card
         self.compute_preview_card = right_panel
 
         layout.addWidget(self.compute_left_scroll, stretch=0)
@@ -1367,6 +1376,15 @@ class MainWindow(QMainWindow):
                 border: 1px solid #bccbda;
                 border-radius: 18px;
             }}
+            QWidget#NestedPreviewCard {{
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #f8fbfe,
+                    stop:1 #edf3f9
+                );
+                border: 1px solid #cad4df;
+                border-radius: 16px;
+            }}
             QLabel#WindowTitleLabel {{
                 color: #0e1b2a;
                 font-size: {TITLE_FONT_SIZE}px;
@@ -1379,14 +1397,14 @@ class MainWindow(QMainWindow):
             }}
             QLabel#ControlLabel {{
                 color: #4e5f73;
-                font-size: 12px;
+                font-size: 13px;
                 font-weight: 600;
                 letter-spacing: 0.08em;
                 text-transform: uppercase;
             }}
             QLabel#SectionLabel {{
                 color: #15273a;
-                font-size: 18px;
+                font-size: 20px;
                 font-weight: 700;
             }}
             QLabel#CaseStatusBadge {{
@@ -1398,8 +1416,9 @@ class MainWindow(QMainWindow):
                 );
                 border: 1px solid #aebfd3;
                 border-radius: 12px;
-                padding: 6px 14px;
-                font-size: 16px;
+                min-width: 470px;
+                padding: 8px 18px;
+                font-size: 18px;
                 font-weight: 600;
             }}
             QLabel#IntroLabel,
@@ -1447,20 +1466,6 @@ class MainWindow(QMainWindow):
             QLabel#ToastLabel[tone="error"] {{
                 background: rgba(128, 38, 40, 234);
             }}
-            QLabel#PreviewZoomLabel {{
-                color: #17324f;
-                padding: 0;
-                font-size: 15px;
-                font-weight: 600;
-            }}
-            QLabel#PreviewToolbarTitle,
-            QLabel#PreviewToolbarMetaLabel {{
-                color: #56687d;
-                font-size: 12px;
-                font-weight: 700;
-                letter-spacing: 0.04em;
-                text-transform: uppercase;
-            }}
             QLabel#PreviewLabel,
             QScrollArea#PreviewImageArea,
             QStackedWidget#PreviewSurface,
@@ -1483,12 +1488,6 @@ class MainWindow(QMainWindow):
                 color: #57687d;
                 padding: 14px;
                 background: transparent;
-            }}
-            QWidget#PreviewToolbarGroup,
-            QWidget#PreviewStatusPill {{
-                background: #e8eff6;
-                border: 1px solid #c1ccd8;
-                border-radius: 14px;
             }}
             QTabWidget::pane {{
                 border: none;
@@ -2049,14 +2048,21 @@ class MainWindow(QMainWindow):
         self.compute_left_scroll.setMinimumWidth(0 if stacked_main else 380)
 
         preview_min_height = 320 if stacked_main else 440
-        compute_preview_min_height = 260 if stacked_main else 320
-        curve_min_height = 220 if stacked_main else 250
+        compute_preview_min_height = 260 if stacked_main else 340
+        curve_min_height = 180 if stacked_main else 210
+        header_text_max_width = 16777215 if stacked_header else (880 if width < 1480 else 980)
+        badge_min_width = 0 if stacked_header else (420 if width < 1480 else 470)
         self.mesh_preview_label.setMinimumHeight(preview_min_height)
         self.damage_label.setMinimumHeight(compute_preview_min_height)
         self.curve_canvas.setMinimumHeight(curve_min_height)
+        self.compute_curve_card.setMaximumHeight(280 if stacked_main else 320)
         self.postprocess_label.setMinimumHeight(preview_min_height)
         self.postprocess_curve_canvas.setMinimumHeight(curve_min_height)
         self.postprocess_table.setMinimumHeight(260 if stacked_main else 340)
+        self.window_title_label.setMaximumWidth(header_text_max_width)
+        self.window_subtitle_label.setMaximumWidth(header_text_max_width)
+        self.case_status_badge.setMinimumWidth(badge_min_width)
+        self.case_status_badge.setMaximumWidth(header_text_max_width)
 
         self.scan_add_button.setMinimumWidth(0 if compact_actions else 90)
         self.scan_remove_button.setMinimumWidth(0 if compact_actions else 90)
