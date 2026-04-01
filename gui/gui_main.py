@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -26,6 +27,8 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -53,9 +56,11 @@ if __package__ in (None, ""):
         INT_FIELDS,
         MESH_FIELD_SPECS,
         POSTPROCESS_VIEWS,
+        RUN_PROFILE_LABELS,
+        RUN_PROFILE_ORDER,
+        SCAN_EDITOR_SPECS,
         first_case_for_category,
         iter_cases_for_category,
-        status_display,
     )
     from run_manifest import RunManifest, dedupe_existing_paths, load_manifest, make_run_id, manifest_file_payloads, write_manifest
 else:
@@ -70,9 +75,11 @@ else:
         INT_FIELDS,
         MESH_FIELD_SPECS,
         POSTPROCESS_VIEWS,
+        RUN_PROFILE_LABELS,
+        RUN_PROFILE_ORDER,
+        SCAN_EDITOR_SPECS,
         first_case_for_category,
         iter_cases_for_category,
-        status_display,
     )
     from .run_manifest import RunManifest, dedupe_existing_paths, load_manifest, make_run_id, manifest_file_payloads, write_manifest
 
@@ -84,14 +91,33 @@ VISUAL_EXPORT_DIR = RESULTS_DIR / "visual_exports"
 STOP_FLAG = GUI_DIR / "gui_stop.flag"
 DEFAULT_PARAMS_PATH = GUI_DIR / "params_default.json"
 APP_FONT_FAMILY = "Times New Roman"
+APP_FONT_SIZE = 15
+TITLE_FONT_SIZE = 24
+PLOT_FONT_SIZE = 14
 JULIA_COMMAND = "julia"
 GUI_ENVS_JULIA_PROJECT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia/environments/gui_envs"
 GUI_ENVS_JULIA_DEPOT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia"
+TOP_LEVEL_RESULT_PATTERNS = (
+    "mesh_*.msh",
+    "mesh_*.png",
+    "F_u_curve*.csv",
+    "F_u_curve*.png",
+    "d_final*.png",
+    "u_mag_final*.png",
+    "result*.vtu",
+    "snap*.png",
+)
 
 mpl.rcParams.update(
     {
         "font.family": APP_FONT_FAMILY,
         "font.serif": [APP_FONT_FAMILY],
+        "font.size": PLOT_FONT_SIZE,
+        "axes.titlesize": PLOT_FONT_SIZE,
+        "axes.labelsize": PLOT_FONT_SIZE,
+        "xtick.labelsize": PLOT_FONT_SIZE,
+        "ytick.labelsize": PLOT_FONT_SIZE,
+        "legend.fontsize": PLOT_FONT_SIZE,
         "xtick.direction": "in",
         "ytick.direction": "in",
     }
@@ -173,6 +199,74 @@ def julia_env_prefix() -> str:
         f'export JULIA_PROJECT="{GUI_ENVS_JULIA_PROJECT}" && '
         f'export JULIA_DEPOT_PATH="{GUI_ENVS_JULIA_DEPOT}" && '
     )
+
+
+def purge_transient_gui_results() -> None:
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    for directory in (MANIFEST_DIR, RUNS_DIR, VISUAL_EXPORT_DIR):
+        if directory.exists():
+            shutil.rmtree(directory)
+
+    for pattern in TOP_LEVEL_RESULT_PATTERNS:
+        for path in RESULTS_DIR.glob(pattern):
+            if path.is_file():
+                path.unlink()
+
+    if STOP_FLAG.exists():
+        STOP_FLAG.unlink()
+
+
+def normalize_run_profile(raw_profile: str | None, fallback: str = "full") -> str:
+    profile = (raw_profile or "").strip().lower()
+    if profile in RUN_PROFILE_ORDER:
+        return profile
+    return fallback if fallback in RUN_PROFILE_ORDER else "full"
+
+
+def apply_run_profile_overrides(base_params: dict[str, object], profile_overrides: dict[str, dict[str, object]], run_profile: str):
+    effective_params = dict(base_params)
+    normalized_profile = normalize_run_profile(run_profile)
+    if normalized_profile == "full":
+        return effective_params
+    for key, value in profile_overrides.get(normalized_profile, {}).items():
+        effective_params[key] = value
+    return effective_params
+
+
+def parse_scan_value(raw_value: str, input_type: str, label: str):
+    text = raw_value.strip()
+    if input_type == "str":
+        if not text:
+            raise ValueError(f"{label} cannot be empty.")
+        return text
+    if not text:
+        raise ValueError(f"{label} cannot be empty.")
+    if input_type == "int":
+        return int(text)
+    if input_type == "bool":
+        lowered = text.lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+        raise ValueError(f"{label} must be a boolean value.")
+    return float(text)
+
+
+def serialize_scan_cases(scan_rows, scan_columns):
+    if not scan_columns:
+        return []
+    if not scan_rows:
+        raise ValueError("At least one scan case is required.")
+    serialized_rows = []
+    for row_index, row in enumerate(scan_rows, start=1):
+        payload = {}
+        for column in scan_columns:
+            label = f"Scan row {row_index} / {column.label}"
+            payload[column.key] = parse_scan_value(str(row.get(column.key, "")), column.input_type, label)
+        serialized_rows.append(payload)
+    return serialized_rows
 
 
 class CurveCanvas(FigureCanvas):
@@ -379,6 +473,7 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.active_run_mode = None
         self.active_case_id = None
+        self.active_run_profile = None
         self.runtime_params_path = None
         self.active_run_id = None
         self.active_run_dir = None
@@ -387,8 +482,12 @@ class MainWindow(QMainWindow):
         self._syncing_inputs = False
         self._syncing_history = False
         self._syncing_selection = False
+        self._syncing_run_profile = False
+        self._syncing_scan_table = False
 
         self.paraview_executable = shutil.which("paraview")
+        self.run_profile_overrides = {}
+        self.default_scan_cases = {}
         self.default_params = self._load_default_params()
         self.current_category = CATEGORY_ORDER[0]
         self.current_case = first_case_for_category(self.current_category).case_id
@@ -412,6 +511,17 @@ class MainWindow(QMainWindow):
 
         common = {key: self._format_value(value) for key, value in raw["common"].items()}
         case_defaults_raw = raw.get("case_defaults", {})
+        self.run_profile_overrides = {
+            case_id: {profile: dict(values) for profile, values in profile_map.items()}
+            for case_id, profile_map in raw.get("run_profiles", {}).items()
+        }
+        self.default_scan_cases = {
+            case_id: [
+                {key: self._format_value(value) for key, value in row.items()}
+                for row in rows
+            ]
+            for case_id, rows in raw.get("scan_defaults", {}).items()
+        }
         defaults = {}
         for case in CASE_REGISTRY:
             merged = {}
@@ -441,10 +551,34 @@ class MainWindow(QMainWindow):
             return format(value, ".15g")
         return str(value)
 
+    def _clone_default_scan_cases(self, case_id: str):
+        return [dict(row) for row in self.default_scan_cases.get(case_id, [])]
+
+    def _run_profile_overrides_for_case(self, case_id: str):
+        return self.run_profile_overrides.get(case_id, {})
+
+    def _scan_columns_for_case(self, case_id: str):
+        case = CASE_DEFINITIONS[case_id]
+        return SCAN_EDITOR_SPECS.get(case.scan_editor_kind, ())
+
+    def _default_scan_row(self, case_id: str, row_index: int):
+        row = {}
+        for column_index, column in enumerate(self._scan_columns_for_case(case_id)):
+            if column.input_type == "str":
+                row[column.key] = f"case_{row_index + 1}" if column_index == 0 else ""
+            else:
+                row[column.key] = "0"
+        return row
+
+    def _collect_scan_cases(self, case):
+        return serialize_scan_cases(self.case_states[case.case_id]["scan_cases"], self._scan_columns_for_case(case.case_id))
+
     def _new_case_state(self, case_id: str):
         case = CASE_DEFINITIONS[case_id]
         return {
             "params": dict(self.default_params.get(case_id, {})),
+            "run_profile": normalize_run_profile(case.default_run_profile, fallback="full"),
+            "scan_cases": self._clone_default_scan_cases(case_id),
             "mesh_ready": False,
             "mesh_artifact_path": None,
             "mesh_preview_path": None,
@@ -499,7 +633,7 @@ class MainWindow(QMainWindow):
 
         top_row = QHBoxLayout()
         title = QLabel("Benchmark Workbench")
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {TITLE_FONT_SIZE}px; font-weight: 600;")
         top_row.addWidget(title)
         top_row.addStretch(1)
 
@@ -603,6 +737,41 @@ class MainWindow(QMainWindow):
         self.compute_empty_label.setWordWrap(True)
         left_layout.addWidget(self.compute_empty_label)
 
+        self.run_profile_box = QGroupBox("Run Profile")
+        run_profile_layout = QHBoxLayout(self.run_profile_box)
+        run_profile_layout.addWidget(QLabel("Profile"))
+        self.run_profile_combo = QComboBox()
+        for profile_id in RUN_PROFILE_ORDER:
+            self.run_profile_combo.addItem(RUN_PROFILE_LABELS[profile_id], profile_id)
+        self.run_profile_combo.currentIndexChanged.connect(self.on_run_profile_changed)
+        run_profile_layout.addWidget(self.run_profile_combo, stretch=1)
+        left_layout.addWidget(self.run_profile_box)
+
+        self.scan_editor_box = QGroupBox("Scan Cases")
+        scan_layout = QVBoxLayout(self.scan_editor_box)
+        self.scan_editor_intro_label = QLabel("Edit the scan list for this benchmark.")
+        self.scan_editor_intro_label.setWordWrap(True)
+        scan_layout.addWidget(self.scan_editor_intro_label)
+        self.scan_table = QTableWidget(0, 0)
+        self.scan_table.verticalHeader().setVisible(False)
+        self.scan_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.scan_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.scan_table.itemChanged.connect(self.on_scan_item_changed)
+        self.scan_table.itemSelectionChanged.connect(self.on_scan_selection_changed)
+        scan_layout.addWidget(self.scan_table)
+        scan_button_row = QHBoxLayout()
+        self.scan_add_button = QPushButton("Add")
+        self.scan_remove_button = QPushButton("Remove")
+        self.scan_reset_button = QPushButton("Reset Default")
+        self.scan_add_button.clicked.connect(self.on_scan_add_row)
+        self.scan_remove_button.clicked.connect(self.on_scan_remove_row)
+        self.scan_reset_button.clicked.connect(self.on_scan_reset_default)
+        scan_button_row.addWidget(self.scan_add_button)
+        scan_button_row.addWidget(self.scan_remove_button)
+        scan_button_row.addWidget(self.scan_reset_button)
+        scan_layout.addLayout(scan_button_row)
+        left_layout.addWidget(self.scan_editor_box)
+
         button_row = QHBoxLayout()
         self.run_button = QPushButton("Run")
         self.stop_button = QPushButton("Stop")
@@ -623,7 +792,7 @@ class MainWindow(QMainWindow):
         self.log_box.setReadOnly(True)
         self.log_box.setMaximumBlockCount(500)
         left_layout.addWidget(self.log_box, stretch=1)
-        left_panel.setMaximumWidth(460)
+        left_panel.setMaximumWidth(620)
 
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
@@ -696,7 +865,7 @@ class MainWindow(QMainWindow):
         self.case_combo.clear()
         cases = iter_cases_for_category(category_id)
         for case in cases:
-            self.case_combo.addItem(f"{case.display_name} [{status_display(case)}]", case.case_id)
+            self.case_combo.addItem(case.display_name, case.case_id)
         target_case = preferred_case_id or first_case_for_category(category_id).case_id
         index = self.case_combo.findData(target_case)
         if index < 0 and self.case_combo.count():
@@ -710,9 +879,26 @@ class MainWindow(QMainWindow):
         if manifest_path is None or not manifest_path.exists():
             return None
         try:
-            return load_manifest(manifest_path)
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:
             return None
+        manifest = RunManifest.from_dict(payload)
+        if "run_profile" not in payload:
+            runtime_params_path = Path(manifest.runtime_params_path) if manifest.runtime_params_path else None
+            inferred_profile = self._load_run_profile_from_runtime_params(runtime_params_path, fallback=None)
+            manifest.run_profile = inferred_profile or CASE_DEFINITIONS.get(manifest.case_id, CASE_DEFINITIONS[self.current_case]).default_run_profile
+        return manifest
+
+    def _load_run_profile_from_runtime_params(self, runtime_params_path: Path | None, fallback: str | None = "full"):
+        if runtime_params_path is None or not runtime_params_path.exists():
+            return fallback
+        try:
+            payload = json.loads(runtime_params_path.read_text(encoding="utf-8"))
+        except Exception:
+            return fallback
+        if "run_profile" not in payload:
+            return fallback
+        return normalize_run_profile(payload.get("run_profile"), fallback="full")
 
     def _load_saved_manifest_for_case(self, case):
         latest_path = latest_manifest_path(case.case_id)
@@ -732,19 +918,13 @@ class MainWindow(QMainWindow):
             manifest_path, manifest = self._load_saved_manifest_for_case(case)
             if manifest is not None and manifest_path is not None:
                 self._apply_manifest_to_state(case.case_id, manifest_path, manifest)
-                continue
-
-            manifest = self._build_manifest_from_disk(case, perform_export=bool(case.visual_exporter))
-            if manifest is not None:
-                manifest_path = latest_manifest_path(case.case_id)
-                write_manifest(manifest_path, manifest)
-                self._apply_manifest_to_state(case.case_id, manifest_path, manifest)
 
     def _make_manifest(
         self,
         case,
         native_output_dir: Path,
         *,
+        run_profile: str | None = None,
         run_id: str | None = None,
         run_dir_path: Path | None = None,
         runtime_params_path: Path | None = None,
@@ -776,6 +956,7 @@ class MainWindow(QMainWindow):
             status="completed",
             backend_mode=case.backend_mode,
             curve_kind=case.curve_kind,
+            run_profile=normalize_run_profile(run_profile, fallback="full"),
             source_script=source_script,
             run_dir=str(run_dir_path.resolve()) if run_dir_path is not None else "",
             runtime_params_path=str(runtime_params_path.resolve()) if runtime_params_path is not None else "",
@@ -793,15 +974,18 @@ class MainWindow(QMainWindow):
         case,
         perform_export: bool,
         *,
+        run_profile: str | None = None,
         run_id: str | None = None,
         run_dir_path: Path | None = None,
         runtime_params_path: Path | None = None,
     ):
         native_output_dir = run_dir_path / "native" if run_dir_path is not None else None
+        resolved_run_profile = run_profile or self._load_run_profile_from_runtime_params(runtime_params_path)
         if case.result_profile.startswith("protocol_"):
             manifest = self._build_protocol_manifest(
                 case,
                 native_output_dir=native_output_dir,
+                run_profile=resolved_run_profile,
                 run_id=run_id,
                 run_dir_path=run_dir_path,
                 runtime_params_path=runtime_params_path,
@@ -810,6 +994,7 @@ class MainWindow(QMainWindow):
             manifest = self._build_tpb_manifest(
                 case,
                 native_output_dir=native_output_dir,
+                run_profile=resolved_run_profile,
                 run_id=run_id,
                 run_dir_path=run_dir_path,
                 runtime_params_path=runtime_params_path,
@@ -818,6 +1003,7 @@ class MainWindow(QMainWindow):
             manifest = self._build_offset_scan_manifest(
                 case,
                 native_output_dir=native_output_dir,
+                run_profile=resolved_run_profile,
                 run_id=run_id,
                 run_dir_path=run_dir_path,
                 runtime_params_path=runtime_params_path,
@@ -826,6 +1012,7 @@ class MainWindow(QMainWindow):
             manifest = self._build_fang_manifest(
                 case,
                 native_output_dir=native_output_dir,
+                run_profile=resolved_run_profile,
                 run_id=run_id,
                 run_dir_path=run_dir_path,
                 runtime_params_path=runtime_params_path,
@@ -834,6 +1021,7 @@ class MainWindow(QMainWindow):
             manifest = self._build_double_notched_manifest(
                 case,
                 native_output_dir=native_output_dir,
+                run_profile=resolved_run_profile,
                 run_id=run_id,
                 run_dir_path=run_dir_path,
                 runtime_params_path=runtime_params_path,
@@ -842,6 +1030,7 @@ class MainWindow(QMainWindow):
             manifest = self._build_plastic_fatigue_sent_manifest(
                 case,
                 native_output_dir=native_output_dir,
+                run_profile=resolved_run_profile,
                 run_id=run_id,
                 run_dir_path=run_dir_path,
                 runtime_params_path=runtime_params_path,
@@ -850,6 +1039,7 @@ class MainWindow(QMainWindow):
             manifest = self._build_plastic_fatigue_ct_manifest(
                 case,
                 native_output_dir=native_output_dir,
+                run_profile=resolved_run_profile,
                 run_id=run_id,
                 run_dir_path=run_dir_path,
                 runtime_params_path=runtime_params_path,
@@ -867,6 +1057,7 @@ class MainWindow(QMainWindow):
         case,
         native_output_dir: Path | None = None,
         *,
+        run_profile: str | None = None,
         run_id: str | None = None,
         run_dir_path: Path | None = None,
         runtime_params_path: Path | None = None,
@@ -903,6 +1094,7 @@ class MainWindow(QMainWindow):
         return self._make_manifest(
             case,
             native_output_dir,
+            run_profile=run_profile,
             run_id=run_id,
             run_dir_path=run_dir_path,
             runtime_params_path=runtime_params_path,
@@ -919,6 +1111,7 @@ class MainWindow(QMainWindow):
         case,
         native_output_dir: Path,
         *,
+        run_profile: str | None = None,
         run_id: str | None = None,
         run_dir_path: Path | None = None,
         runtime_params_path: Path | None = None,
@@ -932,6 +1125,7 @@ class MainWindow(QMainWindow):
         return self._make_manifest(
             case,
             native_output_dir,
+            run_profile=run_profile,
             run_id=run_id,
             run_dir_path=run_dir_path,
             runtime_params_path=runtime_params_path,
@@ -955,6 +1149,7 @@ class MainWindow(QMainWindow):
         case,
         native_output_dir: Path | None = None,
         *,
+        run_profile: str | None = None,
         run_id: str | None = None,
         run_dir_path: Path | None = None,
         runtime_params_path: Path | None = None,
@@ -971,6 +1166,7 @@ class MainWindow(QMainWindow):
         return self._build_batch_manifest(
             case,
             native_output_dir,
+            run_profile=run_profile,
             run_id=run_id,
             run_dir_path=run_dir_path,
             runtime_params_path=runtime_params_path,
@@ -985,6 +1181,7 @@ class MainWindow(QMainWindow):
         case,
         native_output_dir: Path | None = None,
         *,
+        run_profile: str | None = None,
         run_id: str | None = None,
         run_dir_path: Path | None = None,
         runtime_params_path: Path | None = None,
@@ -998,6 +1195,7 @@ class MainWindow(QMainWindow):
         return self._build_batch_manifest(
             case,
             native_output_dir,
+            run_profile=run_profile,
             run_id=run_id,
             run_dir_path=run_dir_path,
             runtime_params_path=runtime_params_path,
@@ -1012,6 +1210,7 @@ class MainWindow(QMainWindow):
         case,
         native_output_dir: Path | None = None,
         *,
+        run_profile: str | None = None,
         run_id: str | None = None,
         run_dir_path: Path | None = None,
         runtime_params_path: Path | None = None,
@@ -1022,6 +1221,7 @@ class MainWindow(QMainWindow):
         return self._build_batch_manifest(
             case,
             native_output_dir,
+            run_profile=run_profile,
             run_id=run_id,
             run_dir_path=run_dir_path,
             runtime_params_path=runtime_params_path,
@@ -1035,6 +1235,7 @@ class MainWindow(QMainWindow):
         case,
         native_output_dir: Path | None = None,
         *,
+        run_profile: str | None = None,
         run_id: str | None = None,
         run_dir_path: Path | None = None,
         runtime_params_path: Path | None = None,
@@ -1045,6 +1246,7 @@ class MainWindow(QMainWindow):
         return self._build_batch_manifest(
             case,
             native_output_dir,
+            run_profile=run_profile,
             run_id=run_id,
             run_dir_path=run_dir_path,
             runtime_params_path=runtime_params_path,
@@ -1058,6 +1260,7 @@ class MainWindow(QMainWindow):
         case,
         native_output_dir: Path | None = None,
         *,
+        run_profile: str | None = None,
         run_id: str | None = None,
         run_dir_path: Path | None = None,
         runtime_params_path: Path | None = None,
@@ -1068,6 +1271,7 @@ class MainWindow(QMainWindow):
         return self._build_batch_manifest(
             case,
             native_output_dir,
+            run_profile=run_profile,
             run_id=run_id,
             run_dir_path=run_dir_path,
             runtime_params_path=runtime_params_path,
@@ -1082,6 +1286,7 @@ class MainWindow(QMainWindow):
         case,
         native_output_dir: Path | None = None,
         *,
+        run_profile: str | None = None,
         run_id: str | None = None,
         run_dir_path: Path | None = None,
         runtime_params_path: Path | None = None,
@@ -1092,6 +1297,7 @@ class MainWindow(QMainWindow):
         return self._build_batch_manifest(
             case,
             native_output_dir,
+            run_profile=run_profile,
             run_id=run_id,
             run_dir_path=run_dir_path,
             runtime_params_path=runtime_params_path,
@@ -1124,6 +1330,7 @@ class MainWindow(QMainWindow):
         case = CASE_DEFINITIONS[case_id]
         state["manifest_path"] = manifest_path
         state["manifest"] = manifest
+        state["run_profile"] = normalize_run_profile(manifest.run_profile, fallback="full")
         state["run_id"] = manifest.run_id
         state["run_dir"] = manifest.run_dir or None
         state["runtime_params_path"] = manifest.runtime_params_path or None
@@ -1197,6 +1404,7 @@ class MainWindow(QMainWindow):
         case = self._current_case_def()
         visible_mesh_fields = 0
         visible_compute_fields = 0
+        scan_visible = bool(case.scan_editor_kind)
 
         for field_key, binding in self.field_bindings.items():
             widget = binding["widget"]
@@ -1220,7 +1428,48 @@ class MainWindow(QMainWindow):
             section.setVisible(section_visible)
 
         self.mesh_empty_label.setVisible(visible_mesh_fields == 0)
-        self.compute_empty_label.setVisible(visible_compute_fields == 0)
+        self.compute_empty_label.setVisible(visible_compute_fields == 0 and not scan_visible)
+        self.scan_editor_box.setVisible(scan_visible)
+
+    def _sync_run_profile_ui(self, case_id: str):
+        case = CASE_DEFINITIONS[case_id]
+        state = self.case_states[case_id]
+        self._syncing_run_profile = True
+        index = self.run_profile_combo.findData(normalize_run_profile(state["run_profile"], fallback=case.default_run_profile))
+        if index < 0:
+            index = self.run_profile_combo.findData(case.default_run_profile)
+        if index >= 0:
+            self.run_profile_combo.setCurrentIndex(index)
+        self._syncing_run_profile = False
+
+    def _sync_scan_editor(self, case_id: str):
+        case = CASE_DEFINITIONS[case_id]
+        columns = self._scan_columns_for_case(case_id)
+        rows = self.case_states[case_id]["scan_cases"]
+        self._syncing_scan_table = True
+        self.scan_table.clear()
+        self.scan_table.setRowCount(len(rows))
+        self.scan_table.setColumnCount(len(columns))
+        self.scan_table.setHorizontalHeaderLabels([column.label for column in columns])
+        for row_index, row in enumerate(rows):
+            for column_index, column in enumerate(columns):
+                item = QTableWidgetItem(row.get(column.key, ""))
+                self.scan_table.setItem(row_index, column_index, item)
+        self._syncing_scan_table = False
+        self.scan_editor_intro_label.setText(
+            "Edit the scan list for this benchmark." if case.scan_editor_kind else "This benchmark does not use a scan list."
+        )
+        self._update_scan_editor_enabled_state()
+
+    def _update_scan_editor_enabled_state(self):
+        case = self._current_case_def()
+        enabled = self.active_run_mode is None and case.is_ready and bool(case.scan_editor_kind)
+        self.run_profile_box.setEnabled(self.active_run_mode is None and case.is_ready)
+        self.run_profile_combo.setEnabled(self.active_run_mode is None and case.is_ready)
+        self.scan_table.setEnabled(enabled)
+        self.scan_add_button.setEnabled(enabled)
+        self.scan_reset_button.setEnabled(enabled)
+        self.scan_remove_button.setEnabled(enabled and self.scan_table.currentRow() >= 0)
 
     def _apply_case_params_to_inputs(self, case_id: str):
         self._syncing_inputs = True
@@ -1228,6 +1477,8 @@ class MainWindow(QMainWindow):
         for key, widget in self.inputs.items():
             widget.setText(params.get(key, ""))
         self._syncing_inputs = False
+        self._sync_run_profile_ui(case_id)
+        self._sync_scan_editor(case_id)
         self._sync_visible_fields()
         self._update_input_enabled_state()
 
@@ -1236,7 +1487,7 @@ class MainWindow(QMainWindow):
         case = self._current_case_def()
         if hasattr(self, "case_status_badge"):
             self.case_status_badge.setText(
-                f"{case.category_label} / {case.display_name} | backend={case.backend_mode} | status={status_display(case)}"
+                f"{case.category_label} / {case.display_name}"
             )
 
         self.mesh_intro_label.setText(
@@ -1257,6 +1508,8 @@ class MainWindow(QMainWindow):
         self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder())
         self.vtk_label.setText(f"Latest VTK: {state['latest_vtk_path'] or 'none'}")
         self.refresh_postprocess_view(prefer_latest=False)
+        self._sync_run_profile_ui(case.case_id)
+        self._sync_scan_editor(case.case_id)
         self._sync_visible_fields()
         self._update_input_enabled_state()
         self._update_tab_availability()
@@ -1269,6 +1522,7 @@ class MainWindow(QMainWindow):
         self.case_combo.setEnabled(self.active_run_mode is None)
         for key, widget in self.inputs.items():
             widget.setEnabled(inputs_enabled and self._field_is_applicable(key, case.case_id))
+        self._update_scan_editor_enabled_state()
 
     def _update_tab_availability(self):
         case = self._current_case_def()
@@ -1445,6 +1699,58 @@ class MainWindow(QMainWindow):
             if self.active_run_mode is None:
                 self._set_idle_state()
 
+    def on_run_profile_changed(self, _index: int):
+        if self._syncing_run_profile:
+            return
+        profile = self.run_profile_combo.currentData()
+        self._current_state()["run_profile"] = normalize_run_profile(profile, fallback=self._current_case_def().default_run_profile)
+
+    def on_scan_item_changed(self, item: QTableWidgetItem):
+        if self._syncing_scan_table:
+            return
+        columns = self._scan_columns_for_case(self.current_case)
+        if not columns:
+            return
+        row_index = item.row()
+        column = columns[item.column()]
+        rows = self._current_state()["scan_cases"]
+        while row_index >= len(rows):
+            rows.append(self._default_scan_row(self.current_case, len(rows)))
+        rows[row_index][column.key] = item.text().strip()
+
+    def on_scan_selection_changed(self):
+        self._update_scan_editor_enabled_state()
+
+    def on_scan_add_row(self):
+        case = self._current_case_def()
+        if not case.scan_editor_kind:
+            return
+        rows = self._current_state()["scan_cases"]
+        rows.append(self._default_scan_row(case.case_id, len(rows)))
+        self._sync_scan_editor(case.case_id)
+        last_row = self.scan_table.rowCount() - 1
+        if last_row >= 0:
+            self.scan_table.selectRow(last_row)
+
+    def on_scan_remove_row(self):
+        case = self._current_case_def()
+        if not case.scan_editor_kind:
+            return
+        row_index = self.scan_table.currentRow()
+        if row_index < 0:
+            return
+        rows = self._current_state()["scan_cases"]
+        if 0 <= row_index < len(rows):
+            del rows[row_index]
+        self._sync_scan_editor(case.case_id)
+        if self.scan_table.rowCount():
+            self.scan_table.selectRow(min(row_index, self.scan_table.rowCount() - 1))
+
+    def on_scan_reset_default(self):
+        case = self._current_case_def()
+        self._current_state()["scan_cases"] = self._clone_default_scan_cases(case.case_id)
+        self._sync_scan_editor(case.case_id)
+
     def on_postprocess_view_changed(self, _view_name: str):
         self.refresh_postprocess_view(prefer_latest=False)
 
@@ -1538,6 +1844,9 @@ class MainWindow(QMainWindow):
                 params[key] = float(raw)
         return params
 
+    def _effective_params_for_run(self, case, params, run_profile: str):
+        return apply_run_profile_overrides(params, self._run_profile_overrides_for_case(case.case_id), run_profile)
+
     def _seed_run_with_mesh_assets(self, case):
         self.active_mesh_artifact_path = None
         if self.active_native_output_dir is None or not case.mesh_stage_enabled:
@@ -1562,24 +1871,26 @@ class MainWindow(QMainWindow):
         self.runtime_params_path = params_path
         return self.runtime_params_path
 
-    def _build_protocol_runtime_payload(self, case, params, run_mode: str):
+    def _build_protocol_runtime_payload(self, case, params, run_mode: str, run_profile: str):
         payload = dict(params)
         payload["run_id"] = self.active_run_id
         payload["run_dir"] = str(self.active_run_dir.resolve())
         payload["output_dir"] = str(self.active_native_output_dir.resolve())
         payload["case_name"] = case.protocol_case_name
         payload["run_mode"] = run_mode
+        payload["run_profile"] = normalize_run_profile(run_profile, fallback=case.default_run_profile)
         payload["mesh_file"] = str(self.active_mesh_artifact_path or self._current_state()["mesh_artifact_path"] or "")
         return payload
 
-    def _build_batch_runtime_payload(self, case, params, run_mode: str):
+    def _build_batch_runtime_payload(self, case, params, run_mode: str, run_profile: str, scan_cases):
         return {
             "run_id": self.active_run_id,
             "run_dir": str(self.active_run_dir.resolve()),
             "output_dir": str(self.active_native_output_dir.resolve()),
             "case_id": case.case_id,
             "run_mode": run_mode,
-            "smoke_mode": case.smoke_mode_default,
+            "run_profile": normalize_run_profile(run_profile, fallback=case.default_run_profile),
+            "scan_cases": scan_cases,
             "params": params,
         }
 
@@ -1588,6 +1899,7 @@ class MainWindow(QMainWindow):
         self.active_run_dir = None
         self.active_native_output_dir = None
         self.active_mesh_artifact_path = None
+        self.active_run_profile = None
 
     def _clear_case_compute_outputs(self, case_id: str, clear_log: bool):
         case = CASE_DEFINITIONS[case_id]
@@ -1622,23 +1934,27 @@ class MainWindow(QMainWindow):
         state["history_selection"]["Mesh"] = None
         self._clear_case_compute_outputs(case_id, clear_log=clear_log)
 
-    def _start_worker(self, run_mode: str, params, case):
+    def _start_worker(self, run_mode: str, params, case, run_profile: str, scan_cases):
         self.cleanup_runtime_params()
         if STOP_FLAG.exists():
             STOP_FLAG.unlink()
 
         self.active_run_id = make_run_id(case.case_id)
+        self.active_run_profile = normalize_run_profile(run_profile, fallback=case.default_run_profile)
         self.active_run_dir = run_dir(case.case_id, self.active_run_id)
         self.active_native_output_dir = run_native_dir(case.case_id, self.active_run_id)
         self.active_native_output_dir.mkdir(parents=True, exist_ok=True)
         if run_mode == "compute":
             self._seed_run_with_mesh_assets(case)
         if case.backend_mode == "protocol_julia":
-            params_path = self.write_runtime_params(case, self._build_protocol_runtime_payload(case, params, run_mode))
+            params_path = self.write_runtime_params(case, self._build_protocol_runtime_payload(case, params, run_mode, self.active_run_profile))
             self.worker = ProtocolJuliaWorker(case.case_id, case.protocol_case_name, params_path, run_mode)
         else:
             assert case.script_abspath is not None
-            params_path = self.write_runtime_params(case, self._build_batch_runtime_payload(case, params, run_mode))
+            params_path = self.write_runtime_params(
+                case,
+                self._build_batch_runtime_payload(case, params, run_mode, self.active_run_profile, scan_cases),
+            )
             self.worker = BatchJuliaWorker(case.case_id, case.script_abspath, params_path, run_mode)
 
         self.worker.log_line.connect(self.append_log)
@@ -1662,16 +1978,19 @@ class MainWindow(QMainWindow):
             return
         try:
             params = self.collect_params()
+            scan_cases = self._collect_scan_cases(case)
         except ValueError as exc:
             QMessageBox.critical(self, "Invalid input", str(exc))
             return
+        run_profile = self._current_state()["run_profile"]
+        effective_params = self._effective_params_for_run(case, params, run_profile)
 
         self._invalidate_case_mesh_state(self.current_case, clear_log=True)
         self._apply_case_state_to_ui()
         self._current_state()["mesh_status"] = f"Generating {case.display_name} mesh..."
         self.mesh_status_label.setText(self._current_state()["mesh_status"])
         self._clear_label_image(self.mesh_preview_label, "Waiting for mesh preview...")
-        self._start_worker("mesh", params, case)
+        self._start_worker("mesh", effective_params, case, run_profile, scan_cases)
 
     def start_run(self):
         case = self._current_case_def()
@@ -1684,16 +2003,19 @@ class MainWindow(QMainWindow):
             return
         try:
             params = self.collect_params()
+            scan_cases = self._collect_scan_cases(case)
         except ValueError as exc:
             QMessageBox.critical(self, "Invalid input", str(exc))
             return
+        run_profile = self._current_state()["run_profile"]
+        effective_params = self._effective_params_for_run(case, params, run_profile)
 
         self._clear_case_compute_outputs(self.current_case, clear_log=True)
         self._apply_case_state_to_ui()
         state = self._current_state()
         state["compute_status"] = f"Starting {case.display_name} compute stage..."
         self.compute_status_label.setText(state["compute_status"])
-        self._start_worker("compute", params, case)
+        self._start_worker("compute", effective_params, case, run_profile, scan_cases)
 
     def stop_run(self):
         if self.worker is None:
@@ -1763,6 +2085,7 @@ class MainWindow(QMainWindow):
         manifest = self._build_manifest_from_disk(
             case,
             perform_export=perform_export,
+            run_profile=self.active_run_profile,
             run_id=self.active_run_id,
             run_dir_path=self.active_run_dir,
             runtime_params_path=self.runtime_params_path,
@@ -1822,17 +2145,17 @@ class MainWindow(QMainWindow):
             self.worker.stop()
             self.worker.wait(5000)
         self.cleanup_runtime_params()
-        if STOP_FLAG.exists():
-            STOP_FLAG.unlink()
+        purge_transient_gui_results()
         super().closeEvent(event)
 
 
 def main():
+    purge_transient_gui_results()
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     app = QApplication(sys.argv)
-    app.setFont(QFont(APP_FONT_FAMILY, 11))
+    app.setFont(QFont(APP_FONT_FAMILY, APP_FONT_SIZE))
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())

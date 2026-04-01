@@ -111,7 +111,35 @@ const h_fine = lc / 2
 const h_coarse = get_float(GUI_PARAMS, "h_coarse", 3.0)
 
 const BASE_OUTPUT_DIR = runtime_output_dir(GUI_RUNTIME, "results_PlasticFracture_FlatGrooved")
-const HISO_SCAN = [0.1, 0.2, 0.5]
+struct HisoScanCase
+    label::String
+    H_ratio::Float64
+end
+
+const HISO_SCAN_DEFAULT = (
+    HisoScanCase("H01E", 0.1),
+    HisoScanCase("H02E", 0.2),
+    HisoScanCase("H05E", 0.5),
+)
+
+function load_hiso_scan_cases()
+    raw_cases = get(GUI_RUNTIME, "scan_cases", nothing)
+    raw_cases === nothing && return collect(HISO_SCAN_DEFAULT)
+    raw_cases isa Vector{Any} || error("scan_cases must be an array of objects")
+    isempty(raw_cases) && error("scan_cases must contain at least one case")
+    cases = HisoScanCase[]
+    for (index, raw_case) in enumerate(raw_cases)
+        raw_case isa Dict{String,Any} || error("scan_cases[$index] must be an object")
+        label = strip(get_string(raw_case, "label", ""))
+        isempty(label) && error("scan_cases[$index].label cannot be empty")
+        H_ratio = get_float(raw_case, "h_ratio", NaN)
+        isfinite(H_ratio) || error("scan_cases[$index].h_ratio must be finite")
+        push!(cases, HisoScanCase(label, H_ratio))
+    end
+    return cases
+end
+
+const HISO_SCAN = load_hiso_scan_cases()
 const SNAPSHOT_DAMAGE_LEVELS = [0.20, 0.60, 0.90, 0.99]
 
 # ============================================================================
@@ -584,18 +612,18 @@ function save_snapshot(
     )
 end
 
-function plot_force_displacement_single(u_hist, f_hist, output_dir, H_ratio)
+function plot_force_displacement_single(u_hist, f_hist, output_dir, scan_case::HisoScanCase)
     p = plot(
         u_hist, f_hist,
         linewidth=2.2,
         color=:blue,
         xlabel="Displacement u (mm)",
         ylabel="Force (kN)",
-        title=@sprintf("Fang 2019 flat grooved specimen | H = %.1fE", H_ratio),
+        title="Fang 2019 flat grooved specimen | $(scan_case.label)",
         legend=false,
         grid=true
     )
-    savefig(p, joinpath(output_dir, @sprintf("F_u_curve_flat_grooved_H%02dE.png", round(Int, 10 * H_ratio))))
+    savefig(p, joinpath(output_dir, "F_u_curve_flat_grooved_$(scan_case.label).png"))
     closeall()
 end
 
@@ -615,7 +643,7 @@ function plot_force_displacement_comparison(curves, output_dir)
         plot!(p, curve.u_hist, curve.f_hist,
               linewidth=2.1,
               color=colors[mod1(i, length(colors))],
-              label=@sprintf("H = %.1fE", curve.H_ratio))
+              label=curve.label)
     end
     savefig(p, joinpath(output_dir, "F_u_curve_scan.png"))
     closeall()
@@ -625,15 +653,16 @@ end
 # Single-case simulation
 # ============================================================================
 
-function run_single_case(H_ratio::Float64)
+function run_single_case(scan_case::HisoScanCase)
+    H_ratio = scan_case.H_ratio
     mat = create_material(H_ratio=H_ratio)
     C_tensor = elastic_stiffness_plane_strain(mat)
 
-    case_dir = joinpath(BASE_OUTPUT_DIR, @sprintf("H%02dE", round(Int, 10 * H_ratio)))
+    case_dir = joinpath(BASE_OUTPUT_DIR, scan_case.label)
     mkpath(case_dir)
 
     println("\n" * "=" ^ 80)
-    @printf("Fang 2019 flat grooved specimen | H = %.1fE\n", H_ratio)
+    println("Fang 2019 flat grooved specimen | $(scan_case.label)")
     println("=" ^ 80)
     println("  E = $(mat.E/1e3) GPa, ν = $(mat.ν), σy = $(mat.σy0) MPa")
     println("  H = $(mat.H_hard) MPa ($(H_ratio)E)")
@@ -791,7 +820,7 @@ function run_single_case(H_ratio::Float64)
         end
     end
 
-    csv_file = joinpath(case_dir, @sprintf("force_displacement_H%02dE.csv", round(Int, 10 * H_ratio)))
+    csv_file = joinpath(case_dir, "force_displacement_$(scan_case.label).csv")
     open(csv_file, "w") do io
         println(io, "step,time_s,u_mm,F_kN,d_max,epspeq_max")
         for i in eachindex(disp_history)
@@ -800,13 +829,14 @@ function run_single_case(H_ratio::Float64)
         end
     end
 
-    plot_force_displacement_single(disp_history, force_history, case_dir, H_ratio)
+    plot_force_displacement_single(disp_history, force_history, case_dir, scan_case)
     save_snapshot("final", uh, dh, plastic_states, H_prev, Ω, V_dg0, V_L2, dΩ,
                   cell_points_cache, cell_coords, case_dir)
 
     runtime_s = time() - run_t0
 
     return (
+        label = scan_case.label,
         H_ratio = H_ratio,
         runtime_s = runtime_s,
         n_steps = length(disp_history),
@@ -825,16 +855,16 @@ end
 function run_simulation()
     mkpath(BASE_OUTPUT_DIR)
     rows = NamedTuple[]
-    for H_ratio in HISO_SCAN
-        push!(rows, run_single_case(H_ratio))
+    for scan_case in HISO_SCAN
+        push!(rows, run_single_case(scan_case))
     end
 
     summary_csv = joinpath(BASE_OUTPUT_DIR, "scan_summary.csv")
     open(summary_csv, "w") do io
-        println(io, "H_ratio,runtime_s,n_steps,u_final_mm,f_peak_kN,d_final")
+        println(io, "label,H_ratio,runtime_s,n_steps,u_final_mm,f_peak_kN,d_final")
         for row in rows
-            @printf(io, "%.2f,%.8f,%d,%.8f,%.8f,%.8f\n",
-                    row.H_ratio, row.runtime_s, row.n_steps, row.u_final, row.f_peak, row.d_final)
+            @printf(io, "%s,%.2f,%.8f,%d,%.8f,%.8f,%.8f\n",
+                    row.label, row.H_ratio, row.runtime_s, row.n_steps, row.u_final, row.f_peak, row.d_final)
         end
     end
 
@@ -847,15 +877,15 @@ function build_mesh_assets_only()
     println("=" ^ 80)
     println("Fang 2019 flat grooved specimen | mesh stage")
     println("=" ^ 80)
-    for H_ratio in HISO_SCAN
-        case_dir = joinpath(BASE_OUTPUT_DIR, @sprintf("H%02dE", round(Int, 10 * H_ratio)))
+    for scan_case in HISO_SCAN
+        case_dir = joinpath(BASE_OUTPUT_DIR, scan_case.label)
         mkpath(case_dir)
         mesh_file = create_mesh(case_dir)
         model = GmshDiscreteModel(mesh_file)
         Ω = Triangulation(model)
         writevtk(model, joinpath(case_dir, "mesh"))
         plot_mesh_png(Ω, case_dir)
-        @printf("  mesh ready: H = %.1fE\n", H_ratio)
+        println("  mesh ready: $(scan_case.label)")
     end
 end
 

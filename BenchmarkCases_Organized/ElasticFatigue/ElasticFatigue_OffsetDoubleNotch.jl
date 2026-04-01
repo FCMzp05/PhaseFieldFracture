@@ -63,11 +63,32 @@ const W = 18.0
 const H = 50.0
 const A_LEFT = 2.5
 const A_RIGHT = 2.5
-const OFFSET_CASES = [
+const OFFSET_CASES_DEFAULT = [
     ("aligned", 25.0, 25.0),
     ("offset_mid", 27.0, 23.0),
     ("offset_large", 29.0, 21.0),
 ]
+
+function load_offset_cases()
+    raw_cases = get(GUI_RUNTIME, "scan_cases", nothing)
+    raw_cases === nothing && return [(label, y_left, y_right) for (label, y_left, y_right) in OFFSET_CASES_DEFAULT]
+    raw_cases isa Vector{Any} || error("scan_cases must be an array of objects")
+    isempty(raw_cases) && error("scan_cases must contain at least one case")
+    cases = Tuple{String,Float64,Float64}[]
+    for (index, raw_case) in enumerate(raw_cases)
+        raw_case isa Dict{String,Any} || error("scan_cases[$index] must be an object")
+        label = strip(get_string(raw_case, "label", ""))
+        isempty(label) && error("scan_cases[$index].label cannot be empty")
+        y_left = get_float(raw_case, "y_left_mm", NaN)
+        y_right = get_float(raw_case, "y_right_mm", NaN)
+        isfinite(y_left) || error("scan_cases[$index].y_left_mm must be finite")
+        isfinite(y_right) || error("scan_cases[$index].y_right_mm must be finite")
+        push!(cases, (label, y_left, y_right))
+    end
+    return cases
+end
+
+const OFFSET_CASES = load_offset_cases()
 
 # ============================================================================
 # Material / phase-field

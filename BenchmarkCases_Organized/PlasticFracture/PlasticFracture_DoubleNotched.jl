@@ -74,10 +74,37 @@ struct GeometryCase
     left_scale::Float64
 end
 
-const CASES = [
+const CASES_DEFAULT = [
     GeometryCase("paper", "Paper baseline", 2.5, 2.0, 0.40, 1.00),
     GeometryCase("load_bias", "Load-biased case", 2.5, 2.0, 0.40, 0.70),
 ]
+
+function load_geometry_cases()
+    raw_cases = get(GUI_RUNTIME, "scan_cases", nothing)
+    raw_cases === nothing && return collect(CASES_DEFAULT)
+    raw_cases isa Vector{Any} || error("scan_cases must be an array of objects")
+    isempty(raw_cases) && error("scan_cases must contain at least one case")
+    cases = GeometryCase[]
+    for (index, raw_case) in enumerate(raw_cases)
+        raw_case isa Dict{String,Any} || error("scan_cases[$index] must be an object")
+        tag = strip(get_string(raw_case, "tag", ""))
+        title = strip(get_string(raw_case, "title", ""))
+        isempty(tag) && error("scan_cases[$index].tag cannot be empty")
+        isempty(title) && error("scan_cases[$index].title cannot be empty")
+        bl_radius = get_float(raw_case, "bl_radius_mm", NaN)
+        tr_radius = get_float(raw_case, "tr_radius_mm", NaN)
+        u_total = get_float(raw_case, "u_total_mm", NaN)
+        left_scale = get_float(raw_case, "left_scale", NaN)
+        isfinite(bl_radius) || error("scan_cases[$index].bl_radius_mm must be finite")
+        isfinite(tr_radius) || error("scan_cases[$index].tr_radius_mm must be finite")
+        isfinite(u_total) || error("scan_cases[$index].u_total_mm must be finite")
+        isfinite(left_scale) || error("scan_cases[$index].left_scale must be finite")
+        push!(cases, GeometryCase(tag, title, bl_radius, tr_radius, u_total, left_scale))
+    end
+    return cases
+end
+
+const CASES = load_geometry_cases()
 
 # ============================================================================
 # Material

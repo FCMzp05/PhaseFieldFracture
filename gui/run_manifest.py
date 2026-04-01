@@ -15,6 +15,7 @@ class RunManifest:
     status: str
     backend_mode: str
     curve_kind: str
+    run_profile: str
     source_script: str
     run_dir: str
     runtime_params_path: str
@@ -40,6 +41,7 @@ class RunManifest:
             status=str(payload["status"]),
             backend_mode=str(payload["backend_mode"]),
             curve_kind=str(payload["curve_kind"]),
+            run_profile=str(payload.get("run_profile", "full")),
             source_script=str(payload.get("source_script", "")),
             run_dir=str(payload.get("run_dir", "")),
             runtime_params_path=str(payload.get("runtime_params_path", "")),

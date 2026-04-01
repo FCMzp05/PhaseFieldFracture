@@ -110,5 +110,150 @@
       "h_fine": 0.2,
       "h_coarse": 2.0
     }
+  },
+  "run_profiles": {
+    "sent_tension": {
+      "preview": {
+        "N_steps_coarse": 2,
+        "du_coarse": 4.0e-5,
+        "du_fine": 4.0e-5,
+        "u_end": 1.6e-4,
+        "snapshot_every": 5
+      },
+      "debug": {
+        "N_steps_coarse": 2,
+        "du_coarse": 4.0e-5,
+        "du_fine": 4.0e-5,
+        "u_end": 1.6e-4,
+        "snapshot_every": 1
+      }
+    },
+    "sens_shear": {
+      "preview": {
+        "du_shear": 1.0e-4,
+        "u_end": 4.0e-4,
+        "snapshot_every": 5
+      },
+      "debug": {
+        "du_shear": 1.0e-4,
+        "u_end": 4.0e-4,
+        "snapshot_every": 1
+      }
+    },
+    "tpb_fatigue": {
+      "preview": {
+        "N_CYCLES": 2,
+        "N_STEPS_PER_CYCLE": 2,
+        "SAVE_CYCLE_INTERVAL": 2
+      },
+      "debug": {
+        "N_CYCLES": 2,
+        "N_STEPS_PER_CYCLE": 2,
+        "SAVE_CYCLE_INTERVAL": 1
+      }
+    },
+    "offset_double_notch_fatigue": {
+      "preview": {
+        "MAX_CYCLES": 2,
+        "N_STEPS_PER_CYCLE": 2
+      },
+      "debug": {
+        "MAX_CYCLES": 2,
+        "N_STEPS_PER_CYCLE": 2
+      }
+    },
+    "fang_flat_grooved_scan": {
+      "preview": {
+        "N_STEPS": 2
+      },
+      "debug": {
+        "N_STEPS": 2
+      }
+    },
+    "double_notched_monotonic": {
+      "preview": {
+        "N_STEPS": 2
+      },
+      "debug": {
+        "N_STEPS": 2
+      }
+    },
+    "sent_elasto_plastic_fatigue": {
+      "preview": {
+        "N_CYCLES": 2,
+        "N_STEPS_PER_CYCLE": 2,
+        "ENABLE_PNG": false,
+        "SAVE_PNG_EVERY": 2
+      },
+      "debug": {
+        "N_CYCLES": 2,
+        "N_STEPS_PER_CYCLE": 2,
+        "ENABLE_PNG": true,
+        "SAVE_PNG_EVERY": 1
+      }
+    },
+    "ct_elasto_plastic_fatigue": {
+      "preview": {
+        "N_CYCLES_TOTAL": 2,
+        "N_STEPS_PER_CYCLE": 2,
+        "CYCLE_JUMP": 1
+      },
+      "debug": {
+        "N_CYCLES_TOTAL": 2,
+        "N_STEPS_PER_CYCLE": 2,
+        "CYCLE_JUMP": 1
+      }
+    }
+  },
+  "scan_defaults": {
+    "offset_double_notch_fatigue": [
+      {
+        "label": "aligned",
+        "y_left_mm": 25.0,
+        "y_right_mm": 25.0
+      },
+      {
+        "label": "offset_mid",
+        "y_left_mm": 27.0,
+        "y_right_mm": 23.0
+      },
+      {
+        "label": "offset_large",
+        "y_left_mm": 29.0,
+        "y_right_mm": 21.0
+      }
+    ],
+    "fang_flat_grooved_scan": [
+      {
+        "label": "H01E",
+        "h_ratio": 0.1
+      },
+      {
+        "label": "H02E",
+        "h_ratio": 0.2
+      },
+      {
+        "label": "H05E",
+        "h_ratio": 0.5
+      }
+    ],
+    "double_notched_monotonic": [
+      {
+        "tag": "paper",
+        "title": "Paper baseline",
+        "bl_radius_mm": 2.5,
+        "tr_radius_mm": 2.0,
+        "u_total_mm": 0.4,
+        "left_scale": 1.0
+      },
+      {
+        "tag": "load_bias",
+        "title": "Load-biased case",
+        "bl_radius_mm": 2.5,
+        "tr_radius_mm": 2.0,
+        "u_total_mm": 0.4,
+        "left_scale": 0.7
+      }
+    ]
   }
 }

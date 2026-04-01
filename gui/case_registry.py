@@ -18,6 +18,13 @@ class FieldSpec:
 
 
 @dataclass(frozen=True)
+class ScanColumnSpec:
+    key: str
+    label: str
+    input_type: str = "float"
+
+
+@dataclass(frozen=True)
 class CaseDefinition:
     category_id: str
     category_label: str
@@ -34,7 +41,8 @@ class CaseDefinition:
     mesh_stage_enabled: bool = True
     editable_field_keys: Tuple[str, ...] = ()
     curve_columns: Tuple[str, str] = ()
-    smoke_mode_default: bool = False
+    default_run_profile: str = "full"
+    scan_editor_kind: str = ""
 
     @property
     def is_ready(self) -> bool:
@@ -62,6 +70,13 @@ CATEGORY_DEFINITIONS: Tuple[Tuple[str, str], ...] = (
 
 CATEGORY_LABELS: Dict[str, str] = dict(CATEGORY_DEFINITIONS)
 CATEGORY_ORDER: Tuple[str, ...] = tuple(category_id for category_id, _ in CATEGORY_DEFINITIONS)
+RUN_PROFILE_DEFINITIONS: Tuple[Tuple[str, str], ...] = (
+    ("preview", "Preview"),
+    ("full", "Full"),
+    ("debug", "Debug"),
+)
+RUN_PROFILE_LABELS: Dict[str, str] = dict(RUN_PROFILE_DEFINITIONS)
+RUN_PROFILE_ORDER: Tuple[str, ...] = tuple(profile_id for profile_id, _ in RUN_PROFILE_DEFINITIONS)
 
 
 COMMON_PROTOCOL_FIELDS = (
@@ -185,6 +200,7 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=COMMON_PROTOCOL_FIELDS + ("N_steps_coarse", "du_coarse", "du_fine", "u_end"),
         curve_columns=("u_mm", "F_kN"),
+        default_run_profile="full",
     ),
     CaseDefinition(
         category_id="elastic_fracture",
@@ -200,6 +216,7 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=COMMON_PROTOCOL_FIELDS + ("du_shear", "u_end"),
         curve_columns=("u_mm", "F_kN"),
+        default_run_profile="full",
     ),
     CaseDefinition(
         category_id="elastic_fatigue",
@@ -216,7 +233,7 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=TPB_FIELDS,
         curve_columns=("cycle", "delta_a"),
-        smoke_mode_default=True,
+        default_run_profile="preview",
     ),
     CaseDefinition(
         category_id="elastic_fatigue",
@@ -233,13 +250,14 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=OFFSET_FIELDS,
         curve_columns=(),
-        smoke_mode_default=True,
+        default_run_profile="preview",
+        scan_editor_kind="offset_notch_scan",
     ),
     CaseDefinition(
         category_id="plastic_fracture",
         category_label=CATEGORY_LABELS["plastic_fracture"],
         case_id="fang_flat_grooved_scan",
-        display_name="Fang flat grooved scan",
+        display_name="Flat grooved scan",
         backend_mode="batch_script",
         curve_kind="force_displacement",
         result_profile="plastic_fracture_flat_grooved_scan",
@@ -250,7 +268,8 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=FANG_FIELDS,
         curve_columns=(),
-        smoke_mode_default=True,
+        default_run_profile="preview",
+        scan_editor_kind="fang_h_ratio_scan",
     ),
     CaseDefinition(
         category_id="plastic_fracture",
@@ -267,7 +286,8 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=DOUBLE_NOTCHED_FIELDS,
         curve_columns=(),
-        smoke_mode_default=True,
+        default_run_profile="preview",
+        scan_editor_kind="double_notched_scan",
     ),
     CaseDefinition(
         category_id="plastic_fatigue",
@@ -284,7 +304,7 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=PLASTIC_SENT_FIELDS,
         curve_columns=("N", "delta_a_mm"),
-        smoke_mode_default=True,
+        default_run_profile="preview",
     ),
     CaseDefinition(
         category_id="plastic_fatigue",
@@ -301,7 +321,7 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=PLASTIC_CT_FIELDS,
         curve_columns=("cycle", "delta_a_mm"),
-        smoke_mode_default=True,
+        default_run_profile="preview",
     ),
 )
 
@@ -422,6 +442,25 @@ INT_FIELDS = frozenset(
 )
 BOOL_FIELDS = frozenset({"ENABLE_PNG"})
 POSTPROCESS_VIEWS = ("Mesh", "Damage", "Displacement", "Visual Export")
+SCAN_EDITOR_SPECS: Mapping[str, Tuple[ScanColumnSpec, ...]] = {
+    "offset_notch_scan": (
+        ScanColumnSpec("label", "Label", "str"),
+        ScanColumnSpec("y_left_mm", "y_left_mm", "float"),
+        ScanColumnSpec("y_right_mm", "y_right_mm", "float"),
+    ),
+    "fang_h_ratio_scan": (
+        ScanColumnSpec("label", "Label", "str"),
+        ScanColumnSpec("h_ratio", "h_ratio", "float"),
+    ),
+    "double_notched_scan": (
+        ScanColumnSpec("tag", "Tag", "str"),
+        ScanColumnSpec("title", "Title", "str"),
+        ScanColumnSpec("bl_radius_mm", "bl_radius_mm", "float"),
+        ScanColumnSpec("tr_radius_mm", "tr_radius_mm", "float"),
+        ScanColumnSpec("u_total_mm", "u_total_mm", "float"),
+        ScanColumnSpec("left_scale", "left_scale", "float"),
+    ),
+}
 
 
 def iter_cases_for_category(category_id: str) -> List[CaseDefinition]:
@@ -434,12 +473,6 @@ def first_case_for_category(category_id: str) -> CaseDefinition:
         raise KeyError(f"Unknown category: {category_id}")
     ready_cases = [case for case in cases if case.is_ready]
     return ready_cases[0] if ready_cases else cases[0]
-
-
-def status_display(case: CaseDefinition) -> str:
-    return "Ready" if case.is_ready else "Planned"
-
-
 CURVE_AXIS_LABELS: Mapping[str, Tuple[str, str]] = {
     "force_displacement": ("u (mm)", "F (kN)"),
     "crack_growth": ("N", "Δa (mm)"),
