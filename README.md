@@ -61,6 +61,8 @@
 - 已进一步放大头部标题/简介/badge 与 tab 字号，并为 compute 预览拆分 `Damage Contour / Live Curve` 子卡片，避免曲线区压住损伤预览
 - 已将 case 胶囊扩宽为优先单行显示，并统一曲线图 figure/axes 背景色与预览卡片底色，消除白底图板
 - 已为 compute 页 `Damage Contour` 接入与 mesh 预览一致的 `Ctrl+滚轮` 缩放/滚动交互，并将 `Live Curve` 底色再调浅以贴合卡片背景
+- 已将 `new/` 目录中的后处理风格接入 GUI `Visual Export`：不同 benchmark 按各自字段使用不同 colormap / colorbar / panel 布局，并把 `gridap/gmsh` 重复节点合并与边界环恢复逻辑复刻到导出几何图
+- 已为此前未接通的 `TPB / Offset double-notch / Double-notched monotonic / SENT elasto-plastic fatigue / CT elasto-plastic fatigue` 补齐 GUI `Visual Export` 入口与导出链路
 
 ### 部分完成
 
@@ -74,7 +76,7 @@
 ### 未完成
 
 - 自定义 `.msh` 网格导入
-- fatigue / plastic fatigue 专用 `visual exporter`
+- fatigue / plastic fatigue 专用 `visual exporter` 的长程结果校核与细节扩展
 - 视频导出（`mp4` / `gif`）
 - 更完整的系统测试与长程 benchmark 验证
 
@@ -156,3 +158,4 @@ peng_pf_ui/
 - 继续观察 compute 预览拆卡后在实时刷新时的视觉稳定性，避免损伤图和曲线区争抢高度
 - 继续观察 case 胶囊在不同 case 名称长度下的单行稳定性，以及 Matplotlib 背景在导出图时的视觉一致性
 - 继续观察 compute 页 `Damage Contour` 在首张快照到达前后的缩放、滚动与占高表现
+- 继续观察新增 `Visual Export` 在真实长程结果上的出图耗时、字段兼容性和色标上限稳定性

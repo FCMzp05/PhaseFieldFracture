@@ -2556,7 +2556,13 @@ class MainWindow(QMainWindow):
 
         try:
             export_dir = VISUAL_EXPORT_DIR / case.case_id / manifest.run_id
-            manifest.exported_visual_paths = export_visuals(case.visual_exporter, native_output_dir, export_dir)
+            runtime_params_path = Path(manifest.runtime_params_path) if manifest.runtime_params_path else None
+            manifest.exported_visual_paths = export_visuals(
+                case.visual_exporter,
+                native_output_dir,
+                export_dir,
+                runtime_params_path,
+            )
         except Exception as exc:
             manifest.exported_visual_paths = {}
             manifest.notes.append(f"Visual export failed: {exc}")

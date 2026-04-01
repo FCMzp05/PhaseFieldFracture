@@ -70,12 +70,23 @@ class GuiPostprocessTests(unittest.TestCase):
     def test_fatigue_case_exposes_curve_view(self):
         self._open_window()
         self._select_case("sent_elasto_plastic_fatigue")
-        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Curve"])
+        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Curve", "Visual Export"])
 
     def test_scan_case_hides_curve_and_displacement_views(self):
         self._open_window()
         self._select_case("offset_double_notch_fatigue")
-        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Summary Table", "Comparison Curve"])
+        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Summary Table", "Comparison Curve", "Visual Export"])
+
+    def test_visual_export_view_is_enabled_for_newly_supported_cases(self):
+        self._open_window()
+        supported_cases = {
+            "tpb_fatigue": ["Mesh", "Damage", "Curve", "Visual Export"],
+            "double_notched_monotonic": ["Mesh", "Damage", "Summary Table", "Comparison Curve", "Visual Export"],
+            "ct_elasto_plastic_fatigue": ["Mesh", "Damage", "Curve", "Visual Export"],
+        }
+        for case_id, expected_views in supported_cases.items():
+            self._select_case(case_id)
+            self.assertEqual(self._view_names(), expected_views)
 
     def test_curve_view_loads_manifest_csv_history(self):
         case_id = "sent_elasto_plastic_fatigue"
