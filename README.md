@@ -38,13 +38,17 @@
 - 已改为启动前清理旧 GUI 缓存，关闭窗口后自动删除未另存的运行结果，避免下次打开直接回显旧网格/快照
 - 已删除顶层历史 `Miehe2010_*` 原型脚本，`Elastic Fracture` 统一维护在 `gui/gui_solver.jl`
 - 已补最小自动化验证基线：运行档位逻辑、scan payload 序列化、manifest 兼容、headless GUI 交互
+- 已将 `Post-process` 视图改为按 case 能力动态裁剪，fatigue / plastic fatigue 可直接查看 `Curve` 历史
+- 已补 `Post-process` 动态视图的 headless 回归测试
+- 已为 scan 类 benchmark 补 `Summary Table / Comparison Curve` 专用结果视图
+- 已补 scan manifest 收集与 scan 结果视图的 headless 回归测试
 
 ### 部分完成
 
 - 参数面板已按 `Material / Phase Field / Loading / Smoke / Geometry / Mesh` 分组，但仍是直接编辑，不是更强约束的“只开放少量加载参数”
 - 首层功能选择已并入顶部 `Category / Case` 两级选择，不是独立卡片入口页
 - `SENT / SENS` 支持实时日志、进度、快照、VTK、曲线刷新；batch case 当前以日志流和结束后回填结果为主
-- 结果视图切换已支持 `Mesh / Damage / Displacement / Visual Export`，但 fatigue / plastic fatigue 的专用可视化仍未补齐
+- 结果视图已按 case 动态切换 `Mesh / Damage / Displacement / Curve / Summary Table / Comparison Curve / Visual Export`
 
 ### 未完成
 
@@ -111,5 +115,5 @@ peng_pf_ui/
 ## 下一步
 
 - 补更完整的系统测试与长程 benchmark 验证
-- 评估 fatigue / plastic fatigue 的专用结果视图
+- 评估 scan 类 benchmark 的表格筛选、列排序与导出
 - 继续明确排除 `visual exporter` 新需求，先稳定主工作流、界面命名和缓存清理行为

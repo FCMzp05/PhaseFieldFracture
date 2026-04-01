@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -283,14 +284,33 @@ class CurveCanvas(FigureCanvas):
         self.update_curve([], [])
 
     def update_curve(self, x_values, y_values):
+        self.update_curves([{"x": x_values, "y": y_values, "label": ""}])
+
+    def update_curves(self, series):
         self.axes.clear()
-        self.axes.plot(x_values, y_values, color="#1f77b4", linewidth=2.0)
+        if not series:
+            series = [{"x": [], "y": [], "label": ""}]
+        for index, item in enumerate(series):
+            x_values = item.get("x", [])
+            y_values = item.get("y", [])
+            label = item.get("label", "")
+            color = item.get("color")
+            line_kwargs = {"linewidth": 2.0}
+            if color:
+                line_kwargs["color"] = color
+            if label:
+                line_kwargs["label"] = label
+            elif len(series) == 1 and index == 0:
+                line_kwargs["color"] = "#1f77b4"
+            self.axes.plot(x_values, y_values, **line_kwargs)
         self.axes.set_xlabel(self._x_label)
         self.axes.set_ylabel(self._y_label)
         self.axes.tick_params(direction="in")
         self.axes.grid(True)
         for spine in self.axes.spines.values():
             spine.set_visible(True)
+        if len(series) > 1 and any(item.get("label") for item in series):
+            self.axes.legend()
         self.draw_idle()
 
 
@@ -484,6 +504,7 @@ class MainWindow(QMainWindow):
         self._syncing_selection = False
         self._syncing_run_profile = False
         self._syncing_scan_table = False
+        self._syncing_postprocess_view = False
 
         self.paraview_executable = shutil.which("paraview")
         self.run_profile_overrides = {}
@@ -815,7 +836,6 @@ class MainWindow(QMainWindow):
         top_row = QHBoxLayout()
         top_row.addWidget(QLabel("View"))
         self.postprocess_view_combo = QComboBox()
-        self.postprocess_view_combo.addItems(POSTPROCESS_VIEWS)
         self.postprocess_view_combo.currentTextChanged.connect(self.on_postprocess_view_changed)
         top_row.addWidget(self.postprocess_view_combo)
 
@@ -833,12 +853,28 @@ class MainWindow(QMainWindow):
         top_row.addWidget(self.export_results_button)
         layout.addLayout(top_row)
 
+        self.postprocess_stack = QStackedWidget()
         self.postprocess_label = self._create_image_label("Post-process output will appear here.")
-        layout.addWidget(self.postprocess_label, stretch=1)
+        self.postprocess_curve_canvas = CurveCanvas()
+        self.postprocess_curve_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.postprocess_table = QTableWidget(0, 0)
+        self.postprocess_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.postprocess_table.setSelectionMode(QTableWidget.NoSelection)
+        self.postprocess_table.verticalHeader().setVisible(False)
+        self.postprocess_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.postprocess_stack.addWidget(self.postprocess_label)
+        self.postprocess_stack.addWidget(self.postprocess_curve_canvas)
+        self.postprocess_stack.addWidget(self.postprocess_table)
+        layout.addWidget(self.postprocess_stack, stretch=1)
 
         self.vtk_label = QLabel("Latest VTK: none")
         self.vtk_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.vtk_label)
+
+        self.postprocess_detail_label = QLabel("")
+        self.postprocess_detail_label.setWordWrap(True)
+        self.postprocess_detail_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.postprocess_detail_label)
         return page
 
     def _create_image_label(self, text: str):
@@ -1218,6 +1254,7 @@ class MainWindow(QMainWindow):
         native_output_dir = native_output_dir or case.native_output_abspath
         if native_output_dir is None or not native_output_dir.exists():
             return None
+        scan_summary = native_output_dir / "scan_summary.csv"
         return self._build_batch_manifest(
             case,
             native_output_dir,
@@ -1228,6 +1265,7 @@ class MainWindow(QMainWindow):
             mesh_paths=self._collect_files(native_output_dir, ("mesh_offset_double_notch.msh", "mesh.png")),
             vtk_paths=self._collect_files(native_output_dir, ("result_*.vtu",)),
             damage_paths=self._collect_files(native_output_dir, ("damage_final.png",)),
+            curve_csv_paths=([scan_summary] if scan_summary.exists() else []) + self._collect_files(native_output_dir, ("history.csv",)),
         )
 
     def _build_double_notched_manifest(
@@ -1243,6 +1281,7 @@ class MainWindow(QMainWindow):
         native_output_dir = native_output_dir or case.native_output_abspath
         if native_output_dir is None or not native_output_dir.exists():
             return None
+        scan_summary = native_output_dir / "scan_summary.csv"
         return self._build_batch_manifest(
             case,
             native_output_dir,
@@ -1253,6 +1292,7 @@ class MainWindow(QMainWindow):
             mesh_paths=self._collect_files(native_output_dir, ("mesh_double_notched.msh", "mesh_double_notched.png")),
             snapshot_paths=self._collect_files(native_output_dir, ("damage_*.png",)),
             vtk_paths=self._collect_files(native_output_dir, ("result_*.vtu",)),
+            curve_csv_paths=([scan_summary] if scan_summary.exists() else []) + self._collect_files(native_output_dir, ("force_displacement.csv",)),
         )
 
     def _build_plastic_fatigue_sent_manifest(
@@ -1355,8 +1395,44 @@ class MainWindow(QMainWindow):
         state["history_selection"]["Displacement"] = (
             str(state["latest_displacement_path"]) if state["latest_displacement_path"] else None
         )
+        summary_csv = self._summary_csv_path(case_id)
+        state["history_selection"]["Summary Table"] = str(summary_csv) if summary_csv else None
+        state["history_selection"]["Comparison Curve"] = None
         visual_history = list(manifest.exported_visual_paths.values())
         state["history_selection"]["Visual Export"] = visual_history[-1] if visual_history else None
+
+    def _available_postprocess_views(self, case_id: str):
+        case = CASE_DEFINITIONS[case_id]
+        state = self.case_states[case_id]
+        manifest = state["manifest"]
+        views = ["Mesh", "Damage"]
+        has_displacement = bool(state["latest_displacement_path"]) or bool(manifest and manifest.displacement_paths)
+        if case.result_profile.startswith("protocol_") or has_displacement:
+            views.append("Displacement")
+        if len(case.curve_columns) == 2:
+            views.append("Curve")
+        if case.scan_editor_kind:
+            views.append("Summary Table")
+        if len(case.comparison_curve_columns) == 2:
+            views.append("Comparison Curve")
+        if case.visual_exporter:
+            views.append("Visual Export")
+        return [view_name for view_name in POSTPROCESS_VIEWS if view_name in views]
+
+    def _sync_postprocess_view_combo(self, case_id: str):
+        available_views = self._available_postprocess_views(case_id)
+        current_view = self.postprocess_view_combo.currentText()
+        if current_view not in available_views:
+            current_view = available_views[0] if available_views else ""
+
+        self._syncing_postprocess_view = True
+        self.postprocess_view_combo.clear()
+        self.postprocess_view_combo.addItems(available_views)
+        if current_view:
+            index = self.postprocess_view_combo.findText(current_view)
+            if index >= 0:
+                self.postprocess_view_combo.setCurrentIndex(index)
+        self._syncing_postprocess_view = False
 
     def _first_file(self, paths, suffix=""):
         for raw_path in paths:
@@ -1372,13 +1448,8 @@ class MainWindow(QMainWindow):
                 return path
         return None
 
-    def _load_curve_history(self, manifest: RunManifest, case) -> tuple[list[float], list[float]]:
-        if len(case.curve_columns) != 2:
-            return [], []
-        if not manifest.curve_csv_paths:
-            return [], []
-        csv_path = Path(manifest.curve_csv_paths[0])
-        if not csv_path.exists():
+    def _load_curve_csv(self, csv_path: Path, case) -> tuple[list[float], list[float]]:
+        if len(case.curve_columns) != 2 or not csv_path.exists():
             return [], []
 
         x_column, y_column = case.curve_columns
@@ -1393,6 +1464,101 @@ class MainWindow(QMainWindow):
                 except (KeyError, TypeError, ValueError):
                     continue
         return x_values, y_values
+
+    def _load_curve_history(self, manifest: RunManifest, case) -> tuple[list[float], list[float]]:
+        if not manifest.curve_csv_paths:
+            return [], []
+        return self._load_curve_csv(Path(manifest.curve_csv_paths[0]), case)
+
+    def _summary_csv_path(self, case_id: str) -> Path | None:
+        manifest = self.case_states[case_id]["manifest"]
+        if manifest is None:
+            return None
+        for raw_path in manifest.curve_csv_paths:
+            path = Path(raw_path)
+            if path.exists() and path.name == "scan_summary.csv":
+                return path
+        return None
+
+    def _comparison_curve_paths(self, case_id: str):
+        case = CASE_DEFINITIONS[case_id]
+        manifest = self.case_states[case_id]["manifest"]
+        if manifest is None or len(case.comparison_curve_columns) != 2:
+            return []
+        result = []
+        for raw_path in manifest.curve_csv_paths:
+            path = Path(raw_path)
+            if not path.exists() or path.name == "scan_summary.csv":
+                continue
+            result.append(path)
+        return result
+
+    def _series_label_for_path(self, case_id: str, path: Path) -> str:
+        manifest = self.case_states[case_id]["manifest"]
+        native_output_dir = Path(manifest.native_output_dir) if manifest is not None and manifest.native_output_dir else None
+        if native_output_dir is not None and path.parent != native_output_dir:
+            return path.parent.name
+        stem = path.stem
+        for prefix in ("force_displacement_", "history_"):
+            if stem.startswith(prefix):
+                stem = stem[len(prefix):]
+        return stem
+
+    def _load_xy_from_csv(self, csv_path: Path, x_column: str, y_column: str) -> tuple[list[float], list[float]]:
+        if not csv_path.exists():
+            return [], []
+        x_values = []
+        y_values = []
+        with csv_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                try:
+                    x_values.append(float(row[x_column]))
+                    y_values.append(float(row[y_column]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        return x_values, y_values
+
+    def _comparison_curve_series(self, case_id: str):
+        case = CASE_DEFINITIONS[case_id]
+        if len(case.comparison_curve_columns) != 2:
+            return []
+        x_column, y_column = case.comparison_curve_columns
+        series = []
+        for path in self._comparison_curve_paths(case_id):
+            x_values, y_values = self._load_xy_from_csv(path, x_column, y_column)
+            if not x_values or not y_values:
+                continue
+            series.append(
+                {
+                    "x": x_values,
+                    "y": y_values,
+                    "label": self._series_label_for_path(case_id, path),
+                }
+            )
+        return series
+
+    def _populate_summary_table(self, csv_path: Path | None):
+        self.postprocess_table.clear()
+        if csv_path is None or not csv_path.exists():
+            self.postprocess_table.setRowCount(0)
+            self.postprocess_table.setColumnCount(0)
+            return
+        with csv_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle)
+            rows = list(reader)
+        if not rows:
+            self.postprocess_table.setRowCount(0)
+            self.postprocess_table.setColumnCount(0)
+            return
+        headers = rows[0]
+        body = rows[1:]
+        self.postprocess_table.setColumnCount(len(headers))
+        self.postprocess_table.setRowCount(len(body))
+        self.postprocess_table.setHorizontalHeaderLabels(headers)
+        for row_index, row in enumerate(body):
+            for column_index, value in enumerate(row):
+                self.postprocess_table.setItem(row_index, column_index, QTableWidgetItem(value))
 
     def _active_field_keys(self, case_id: str):
         return CASE_DEFINITIONS[case_id].editable_field_keys
@@ -1507,6 +1673,7 @@ class MainWindow(QMainWindow):
         self._set_label_image(self.mesh_preview_label, state["mesh_preview_path"], self._mesh_placeholder())
         self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder())
         self.vtk_label.setText(f"Latest VTK: {state['latest_vtk_path'] or 'none'}")
+        self._sync_postprocess_view_combo(case.case_id)
         self.refresh_postprocess_view(prefer_latest=False)
         self._sync_run_profile_ui(case.case_id)
         self._sync_scan_editor(case.case_id)
@@ -1609,6 +1776,28 @@ class MainWindow(QMainWindow):
             return (Path(path), self._visual_placeholder()) if path else (None, self._visual_placeholder())
         return None, "Post-process output will appear here."
 
+    def _postprocess_detail_text(self, view_name: str, selected_path: str | None):
+        if view_name == "Summary Table":
+            return f"Summary Table: {selected_path}" if selected_path else "Scan summary table will appear here."
+        if view_name == "Comparison Curve":
+            series = self._comparison_curve_series(self.current_case)
+            if series:
+                labels = ", ".join(item["label"] for item in series)
+                return f"Comparison Curve: {len(series)} series [{labels}]"
+            return "Comparison curves will appear here."
+        if selected_path:
+            return f"{view_name}: {selected_path}"
+        placeholders = {
+            "Mesh": self._mesh_placeholder(),
+            "Damage": self._damage_placeholder(),
+            "Displacement": self._displacement_placeholder(),
+            "Curve": "Curve data will appear here.",
+            "Summary Table": "Scan summary table will appear here.",
+            "Comparison Curve": "Comparison curves will appear here.",
+            "Visual Export": self._visual_placeholder(),
+        }
+        return placeholders.get(view_name, "Post-process output will appear here.")
+
     def _history_paths_for_case(self, case_id: str, view_name: str):
         state = self.case_states[case_id]
         manifest = state["manifest"]
@@ -1624,6 +1813,11 @@ class MainWindow(QMainWindow):
             return [path for path in paths if path.exists()]
         if view_name == "Displacement":
             return [state["latest_displacement_path"]] if state["latest_displacement_path"] else []
+        if view_name == "Curve":
+            return [Path(path) for path in manifest.curve_csv_paths if Path(path).exists()]
+        if view_name == "Summary Table":
+            summary_csv = self._summary_csv_path(case_id)
+            return [summary_csv] if summary_csv is not None else []
         if view_name == "Visual Export":
             return [Path(path) for path in state["visual_export_paths"].values() if Path(path).exists()]
         return []
@@ -1752,6 +1946,8 @@ class MainWindow(QMainWindow):
         self._sync_scan_editor(case.case_id)
 
     def on_postprocess_view_changed(self, _view_name: str):
+        if self._syncing_postprocess_view:
+            return
         self.refresh_postprocess_view(prefer_latest=False)
 
     def on_history_changed(self, _index: int):
@@ -1759,8 +1955,7 @@ class MainWindow(QMainWindow):
             return
         view_name = self.postprocess_view_combo.currentText()
         self._current_state()["history_selection"][view_name] = self.history_combo.currentData()
-        image_path, placeholder = self._visible_image_path(view_name)
-        self._set_label_image(self.postprocess_label, image_path, placeholder)
+        self.refresh_postprocess_view(prefer_latest=False)
 
     def append_log(self, text: str):
         state = self._active_state()
@@ -1922,6 +2117,8 @@ class MainWindow(QMainWindow):
         state["runtime_params_path"] = None
         state["history_selection"]["Damage"] = None
         state["history_selection"]["Displacement"] = None
+        state["history_selection"]["Summary Table"] = None
+        state["history_selection"]["Comparison Curve"] = None
         state["history_selection"]["Visual Export"] = None
 
     def _invalidate_case_mesh_state(self, case_id: str, clear_log: bool):
@@ -2026,8 +2223,31 @@ class MainWindow(QMainWindow):
     def refresh_postprocess_view(self, prefer_latest: bool):
         self._refresh_history_combo(prefer_latest=prefer_latest)
         view_name = self.postprocess_view_combo.currentText()
-        image_path, placeholder = self._visible_image_path(view_name)
-        self._set_label_image(self.postprocess_label, image_path, placeholder)
+        selected_path = self.history_combo.currentData()
+        if view_name == "Curve":
+            self.postprocess_stack.setCurrentWidget(self.postprocess_curve_canvas)
+            self.postprocess_curve_canvas.set_curve_kind(self._current_case_def().curve_kind)
+            if selected_path:
+                x_values, y_values = self._load_curve_csv(Path(selected_path), self._current_case_def())
+            else:
+                x_values, y_values = [], []
+            self.postprocess_curve_canvas.update_curve(x_values, y_values)
+        elif view_name == "Summary Table":
+            self.postprocess_stack.setCurrentWidget(self.postprocess_table)
+            if selected_path:
+                self._populate_summary_table(Path(selected_path))
+            else:
+                self._populate_summary_table(None)
+        elif view_name == "Comparison Curve":
+            self.postprocess_stack.setCurrentWidget(self.postprocess_curve_canvas)
+            comparison_curve_kind = self._current_case_def().comparison_curve_kind or self._current_case_def().curve_kind
+            self.postprocess_curve_canvas.set_curve_kind(comparison_curve_kind)
+            self.postprocess_curve_canvas.update_curves(self._comparison_curve_series(self.current_case))
+        else:
+            image_path, placeholder = self._visible_image_path(view_name)
+            self.postprocess_stack.setCurrentWidget(self.postprocess_label)
+            self._set_label_image(self.postprocess_label, image_path, placeholder)
+        self.postprocess_detail_label.setText(self._postprocess_detail_text(view_name, selected_path))
         self._update_paraview_button()
 
     def open_in_paraview(self):

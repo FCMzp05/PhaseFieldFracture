@@ -41,6 +41,8 @@ class CaseDefinition:
     mesh_stage_enabled: bool = True
     editable_field_keys: Tuple[str, ...] = ()
     curve_columns: Tuple[str, str] = ()
+    comparison_curve_columns: Tuple[str, str] = ()
+    comparison_curve_kind: str = ""
     default_run_profile: str = "full"
     scan_editor_kind: str = ""
 
@@ -250,6 +252,8 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=OFFSET_FIELDS,
         curve_columns=(),
+        comparison_curve_columns=("cycle", "gap_mm"),
+        comparison_curve_kind="cycle_gap",
         default_run_profile="preview",
         scan_editor_kind="offset_notch_scan",
     ),
@@ -268,6 +272,8 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=FANG_FIELDS,
         curve_columns=(),
+        comparison_curve_columns=("u_mm", "F_kN"),
+        comparison_curve_kind="force_displacement",
         default_run_profile="preview",
         scan_editor_kind="fang_h_ratio_scan",
     ),
@@ -286,6 +292,8 @@ CASE_REGISTRY: Tuple[CaseDefinition, ...] = (
         mesh_stage_enabled=True,
         editable_field_keys=DOUBLE_NOTCHED_FIELDS,
         curve_columns=(),
+        comparison_curve_columns=("u_mm", "F_kN"),
+        comparison_curve_kind="force_displacement",
         default_run_profile="preview",
         scan_editor_kind="double_notched_scan",
     ),
@@ -441,7 +449,7 @@ INT_FIELDS = frozenset(
     }
 )
 BOOL_FIELDS = frozenset({"ENABLE_PNG"})
-POSTPROCESS_VIEWS = ("Mesh", "Damage", "Displacement", "Visual Export")
+POSTPROCESS_VIEWS = ("Mesh", "Damage", "Displacement", "Curve", "Summary Table", "Comparison Curve", "Visual Export")
 SCAN_EDITOR_SPECS: Mapping[str, Tuple[ScanColumnSpec, ...]] = {
     "offset_notch_scan": (
         ScanColumnSpec("label", "Label", "str"),
@@ -476,4 +484,5 @@ def first_case_for_category(category_id: str) -> CaseDefinition:
 CURVE_AXIS_LABELS: Mapping[str, Tuple[str, str]] = {
     "force_displacement": ("u (mm)", "F (kN)"),
     "crack_growth": ("N", "Δa (mm)"),
+    "cycle_gap": ("N", "Gap (mm)"),
 }
