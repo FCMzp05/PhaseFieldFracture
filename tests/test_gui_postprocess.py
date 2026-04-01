@@ -6,7 +6,9 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtCore import QPoint, QPointF, Qt
 from PyQt5.QtGui import QColor, QImage
+from PyQt5.QtGui import QWheelEvent
 from PyQt5.QtWidgets import QGraphicsOpacityEffect
 from PyQt5.QtWidgets import QApplication
 
@@ -144,6 +146,38 @@ class GuiPostprocessTests(unittest.TestCase):
         self.app.processEvents()
         self.assertLessEqual(scrollbar.value(), start_value)
 
+    def test_mesh_preview_ctrl_wheel_works_when_cursor_is_on_image_label(self):
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.app.processEvents()
+
+        image_path = self.temp_path / "mesh_preview_ctrl_zoom.png"
+        image = QImage(640, 960, QImage.Format_RGB32)
+        image.fill(QColor("#dce8f5"))
+        self.assertTrue(image.save(str(image_path)))
+
+        viewer = self.window.mesh_preview_label
+        self.window._set_label_image(viewer, image_path, "Mesh preview will appear here.", animate=False)
+        viewer.show_actual_size()
+        self.app.processEvents()
+
+        start_scale = viewer._current_scale_factor()
+        wheel_event = QWheelEvent(
+            QPointF(100, 100),
+            QPointF(100, 100),
+            QPoint(0, 0),
+            QPoint(0, 120),
+            Qt.NoButton,
+            Qt.ControlModifier,
+            Qt.NoScrollPhase,
+            False,
+        )
+        QApplication.sendEvent(viewer.image_label, wheel_event)
+        self.app.processEvents()
+
+        self.assertGreater(viewer._current_scale_factor(), start_scale)
+
     def test_mesh_preview_widget_is_not_wrapped_by_opacity_animation(self):
         self._open_window()
         self.window.resize(1280, 900)
@@ -165,6 +199,19 @@ class GuiPostprocessTests(unittest.TestCase):
         viewer.zoom_in()
         self.app.processEvents()
         self.assertIsNotNone(viewer.image_label.pixmap())
+
+    def test_postprocess_tab_stays_scrollable_in_compact_window(self):
+        self._open_window()
+        self.window.resize(760, 680)
+        self.window.show()
+        self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
+        self.window.tabs.setCurrentIndex(self.window.post_tab_index)
+        self.app.processEvents()
+
+        scrollbar = self.window.postprocess_scroll.verticalScrollBar()
+        self.assertGreater(scrollbar.maximum(), 0)
+        self.assertTrue(self.window.open_paraview_button.isVisible())
+        self.assertTrue(self.window.export_results_button.isVisible())
 
 
 if __name__ == "__main__":

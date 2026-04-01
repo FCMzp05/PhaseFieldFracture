@@ -430,7 +430,9 @@ class ImagePreviewWidget(QWidget):
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll_area.setFocusPolicy(Qt.StrongFocus)
         self.scroll_area.viewport().setFocusPolicy(Qt.StrongFocus)
+        self.scroll_area.installEventFilter(self)
         self.scroll_area.viewport().installEventFilter(self)
+        self.image_label.installEventFilter(self)
         layout.addWidget(self.scroll_area, stretch=1)
 
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -535,12 +537,13 @@ class ImagePreviewWidget(QWidget):
             f"Ctrl+Wheel: zoom\nDouble-click: fit / actual size\nCurrent Scale: {scale_text}"
         )
 
-    def _handle_ctrl_wheel_zoom(self, event):
+    def _handle_ctrl_wheel_zoom(self, event, cursor_pos=None):
         delta = event.angleDelta().y() or event.angleDelta().x()
         if delta == 0:
             return
 
-        cursor_pos = event.pos()
+        if cursor_pos is None:
+            cursor_pos = self.scroll_area.viewport().rect().center()
         h_bar = self.scroll_area.horizontalScrollBar()
         v_bar = self.scroll_area.verticalScrollBar()
         old_scale = max(self._current_scale_factor(), 1.0e-6)
@@ -564,9 +567,12 @@ class ImagePreviewWidget(QWidget):
         self.scroll_area.viewport().setToolTip("Ctrl+Wheel: zoom\nDouble-click: fit / actual size")
 
     def eventFilter(self, watched, event):
-        if watched is self.scroll_area.viewport():
+        if watched in {self.scroll_area, self.scroll_area.viewport(), self.image_label}:
             if event.type() == QEvent.Wheel and self.has_image() and (event.modifiers() & Qt.ControlModifier):
-                self._handle_ctrl_wheel_zoom(event)
+                cursor_pos = event.pos()
+                if watched is not self.scroll_area.viewport():
+                    cursor_pos = watched.mapTo(self.scroll_area.viewport(), event.pos())
+                self._handle_ctrl_wheel_zoom(event, cursor_pos)
                 return True
             if event.type() == QEvent.MouseButtonDblClick and self.has_image():
                 if self._fit_to_view:
@@ -1249,15 +1255,15 @@ class MainWindow(QMainWindow):
         controls_row = QHBoxLayout()
         controls_row.setSpacing(12)
         self.postprocess_controls_layout = controls_row
-        controls_row.addWidget(self._create_control_label("View"))
         self.postprocess_view_combo = QComboBox()
         self.postprocess_view_combo.currentTextChanged.connect(self.on_postprocess_view_changed)
-        controls_row.addWidget(self.postprocess_view_combo)
+        self.postprocess_view_stack = self._build_control_stack("View", self.postprocess_view_combo)
+        controls_row.addWidget(self.postprocess_view_stack)
 
-        controls_row.addWidget(self._create_control_label("History"))
         self.history_combo = QComboBox()
         self.history_combo.currentIndexChanged.connect(self.on_history_changed)
-        controls_row.addWidget(self.history_combo, stretch=1)
+        self.postprocess_history_stack = self._build_control_stack("History", self.history_combo)
+        controls_row.addWidget(self.postprocess_history_stack, stretch=1)
         toolbar_layout.addLayout(controls_row)
 
         action_row = QHBoxLayout()
@@ -1277,6 +1283,7 @@ class MainWindow(QMainWindow):
 
         self.postprocess_stack = QStackedWidget()
         self.postprocess_stack.setObjectName("PreviewSurface")
+        self.postprocess_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.postprocess_label = self._create_image_viewer("Post-process output will appear here.")
         self.postprocess_curve_canvas = CurveCanvas()
         self.postprocess_curve_canvas.setObjectName("CurveCanvas")
@@ -1301,7 +1308,8 @@ class MainWindow(QMainWindow):
         self.postprocess_detail_label.setWordWrap(True)
         self.postprocess_detail_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         toolbar_layout.addWidget(self.postprocess_detail_label)
-        layout.addWidget(toolbar_card)
+        self.postprocess_scroll = self._wrap_panel_scroll(toolbar_card)
+        layout.addWidget(self.postprocess_scroll)
         self.postprocess_toolbar_card = toolbar_card
         return page
 
@@ -2050,15 +2058,17 @@ class MainWindow(QMainWindow):
         preview_min_height = 320 if stacked_main else 440
         compute_preview_min_height = 260 if stacked_main else 340
         curve_min_height = 180 if stacked_main else 210
+        postprocess_surface_min_height = 260 if compact_actions else preview_min_height
         header_text_max_width = 16777215 if stacked_header else (880 if width < 1480 else 980)
         badge_min_width = 0 if stacked_header else (420 if width < 1480 else 470)
         self.mesh_preview_label.setMinimumHeight(preview_min_height)
         self.damage_label.setMinimumHeight(compute_preview_min_height)
         self.curve_canvas.setMinimumHeight(curve_min_height)
         self.compute_curve_card.setMaximumHeight(280 if stacked_main else 320)
-        self.postprocess_label.setMinimumHeight(preview_min_height)
-        self.postprocess_curve_canvas.setMinimumHeight(curve_min_height)
-        self.postprocess_table.setMinimumHeight(260 if stacked_main else 340)
+        self.postprocess_stack.setMinimumHeight(postprocess_surface_min_height)
+        self.postprocess_label.setMinimumHeight(postprocess_surface_min_height)
+        self.postprocess_curve_canvas.setMinimumHeight(max(curve_min_height, 200 if compact_actions else curve_min_height))
+        self.postprocess_table.setMinimumHeight(220 if compact_actions else 340)
         self.window_title_label.setMaximumWidth(header_text_max_width)
         self.window_subtitle_label.setMaximumWidth(header_text_max_width)
         self.case_status_badge.setMinimumWidth(badge_min_width)
@@ -3600,6 +3610,8 @@ class MainWindow(QMainWindow):
                 watched.setProperty("floating", False)
                 self.style().unpolish(watched)
                 self.style().polish(watched)
+                self._button_rest_geometries[watched] = QRect(watched.geometry())
+            elif event.type() in {QEvent.Show, QEvent.Move, QEvent.Resize} and not watched.property("floating"):
                 self._button_rest_geometries[watched] = QRect(watched.geometry())
         elif isinstance(watched, QGroupBox) and watched.property("collapsible_section"):
             if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and event.pos().y() <= 34:
