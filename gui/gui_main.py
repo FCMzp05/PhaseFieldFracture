@@ -12,6 +12,7 @@ from PyQt5.QtCore import QThread, Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
+    QBoxLayout,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -25,6 +26,7 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QTabWidget,
@@ -98,6 +100,7 @@ PLOT_FONT_SIZE = 14
 JULIA_COMMAND = "julia"
 GUI_ENVS_JULIA_PROJECT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia/environments/gui_envs"
 GUI_ENVS_JULIA_DEPOT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia"
+SUBTITLE_FONT_SIZE = 12
 TOP_LEVEL_RESULT_PATTERNS = (
     "mesh_*.msh",
     "mesh_*.png",
@@ -519,6 +522,7 @@ class MainWindow(QMainWindow):
         self.section_bindings = []
 
         self._build_ui()
+        self._apply_theme()
         self._load_manifests_from_disk()
         self._sync_category_combo()
         self._refresh_case_combo(self.current_category, preferred_case_id=self.current_case)
@@ -648,32 +652,58 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         root = QWidget()
+        root.setObjectName("AppRoot")
         root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(12, 12, 12, 12)
-        root_layout.setSpacing(10)
+        root_layout.setContentsMargins(18, 18, 18, 18)
+        root_layout.setSpacing(14)
+
+        header_card = QWidget()
+        header_card.setObjectName("HeaderCard")
+        header_layout = QVBoxLayout(header_card)
+        header_layout.setContentsMargins(20, 18, 20, 16)
+        header_layout.setSpacing(12)
 
         top_row = QHBoxLayout()
-        title = QLabel("Benchmark Workbench")
-        title.setStyleSheet(f"font-size: {TITLE_FONT_SIZE}px; font-weight: 600;")
-        top_row.addWidget(title)
-        top_row.addStretch(1)
+        top_row.setSpacing(16)
+        self.header_top_layout = top_row
 
-        top_row.addWidget(QLabel("Category"))
+        title_block = QWidget()
+        title_layout = QVBoxLayout(title_block)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(4)
+        title = QLabel("Benchmark Workbench")
+        title.setObjectName("WindowTitleLabel")
+        title_layout.addWidget(title)
+        self.window_subtitle_label = QLabel("Preset benchmark workflows for mesh, compute, and post-process.")
+        self.window_subtitle_label.setObjectName("WindowSubtitleLabel")
+        self.window_subtitle_label.setWordWrap(True)
+        title_layout.addWidget(self.window_subtitle_label)
+        top_row.addWidget(title_block, stretch=1)
+
+        controls_card = QWidget()
+        controls_card.setObjectName("ToolbarCard")
+        controls_layout = QHBoxLayout(controls_card)
+        controls_layout.setContentsMargins(14, 12, 14, 12)
+        controls_layout.setSpacing(12)
+        self.header_controls_layout = controls_layout
+
         self.category_combo = QComboBox()
         self.category_combo.currentIndexChanged.connect(self.on_category_combo_changed)
-        top_row.addWidget(self.category_combo)
+        controls_layout.addWidget(self._build_control_stack("Category", self.category_combo))
 
-        top_row.addWidget(QLabel("Case"))
         self.case_combo = QComboBox()
         self.case_combo.currentIndexChanged.connect(self.on_case_combo_changed)
-        top_row.addWidget(self.case_combo)
-        root_layout.addLayout(top_row)
+        controls_layout.addWidget(self._build_control_stack("Case", self.case_combo))
+        top_row.addWidget(controls_card, stretch=0)
+        header_layout.addLayout(top_row)
 
         self.case_status_badge = QLabel("")
-        self.case_status_badge.setStyleSheet("color: #555555;")
-        root_layout.addWidget(self.case_status_badge)
+        self.case_status_badge.setObjectName("CaseStatusBadge")
+        header_layout.addWidget(self.case_status_badge)
+        root_layout.addWidget(header_card)
 
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
         self.mesh_tab_index = self.tabs.addTab(self._build_mesh_tab(), "Mesh")
         self.compute_tab_index = self.tabs.addTab(self._build_compute_tab(), "Compute")
         self.post_tab_index = self.tabs.addTab(self._build_postprocess_tab(), "Post-process")
@@ -682,14 +712,20 @@ class MainWindow(QMainWindow):
 
     def _build_mesh_tab(self):
         page = QWidget()
+        page.setObjectName("TabPage")
         layout = QHBoxLayout(page)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        self.mesh_main_layout = layout
 
         left_panel = QWidget()
+        left_panel.setObjectName("PanelCard")
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setSpacing(10)
+        left_layout.setContentsMargins(18, 18, 18, 18)
+        left_layout.setSpacing(12)
 
         self.mesh_intro_label = QLabel("")
+        self.mesh_intro_label.setObjectName("IntroLabel")
         self.mesh_intro_label.setWordWrap(True)
         left_layout.addWidget(self.mesh_intro_label)
 
@@ -709,33 +745,52 @@ class MainWindow(QMainWindow):
             left_layout.addWidget(box)
 
         self.mesh_empty_label = QLabel("This case has no editable mesh parameters in the GUI.")
+        self.mesh_empty_label.setObjectName("HintLabel")
         self.mesh_empty_label.setWordWrap(True)
         left_layout.addWidget(self.mesh_empty_label)
 
         self.generate_mesh_button = QPushButton("Generate Mesh")
+        self.generate_mesh_button.setProperty("variant", "primary")
         self.generate_mesh_button.clicked.connect(self.start_mesh_generation)
         left_layout.addWidget(self.generate_mesh_button)
 
         self.mesh_status_label = QLabel("")
+        self.mesh_status_label.setObjectName("StatusCard")
         self.mesh_status_label.setWordWrap(True)
         left_layout.addWidget(self.mesh_status_label)
         left_layout.addStretch(1)
+        self.mesh_left_panel = left_panel
+        self.mesh_left_scroll = self._wrap_panel_scroll(left_panel)
 
         self.mesh_preview_label = self._create_image_label("Mesh preview will appear here.")
-        layout.addWidget(left_panel, stretch=0)
-        layout.addWidget(self.mesh_preview_label, stretch=1)
+        mesh_preview_card = QWidget()
+        mesh_preview_card.setObjectName("PreviewCard")
+        mesh_preview_layout = QVBoxLayout(mesh_preview_card)
+        mesh_preview_layout.setContentsMargins(18, 18, 18, 18)
+        mesh_preview_layout.setSpacing(12)
+        mesh_preview_layout.addWidget(self._create_section_label("Mesh Preview"))
+        mesh_preview_layout.addWidget(self.mesh_preview_label, stretch=1)
+        self.mesh_preview_card = mesh_preview_card
+        layout.addWidget(self.mesh_left_scroll, stretch=0)
+        layout.addWidget(mesh_preview_card, stretch=1)
         return page
 
     def _build_compute_tab(self):
         page = QWidget()
+        page.setObjectName("TabPage")
         layout = QHBoxLayout(page)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        self.compute_main_layout = layout
 
         left_panel = QWidget()
+        left_panel.setObjectName("PanelCard")
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setSpacing(10)
+        left_layout.setContentsMargins(18, 18, 18, 18)
+        left_layout.setSpacing(12)
 
         self.compute_intro_label = QLabel("")
+        self.compute_intro_label.setObjectName("IntroLabel")
         self.compute_intro_label.setWordWrap(True)
         left_layout.addWidget(self.compute_intro_label)
 
@@ -755,12 +810,13 @@ class MainWindow(QMainWindow):
             left_layout.addWidget(box)
 
         self.compute_empty_label = QLabel("This case currently runs with its benchmark defaults.")
+        self.compute_empty_label.setObjectName("HintLabel")
         self.compute_empty_label.setWordWrap(True)
         left_layout.addWidget(self.compute_empty_label)
 
         self.run_profile_box = QGroupBox("Run Profile")
         run_profile_layout = QHBoxLayout(self.run_profile_box)
-        run_profile_layout.addWidget(QLabel("Profile"))
+        run_profile_layout.addWidget(self._create_control_label("Profile"))
         self.run_profile_combo = QComboBox()
         for profile_id in RUN_PROFILE_ORDER:
             self.run_profile_combo.addItem(RUN_PROFILE_LABELS[profile_id], profile_id)
@@ -781,9 +837,13 @@ class MainWindow(QMainWindow):
         self.scan_table.itemSelectionChanged.connect(self.on_scan_selection_changed)
         scan_layout.addWidget(self.scan_table)
         scan_button_row = QHBoxLayout()
+        self.scan_button_layout = scan_button_row
         self.scan_add_button = QPushButton("Add")
         self.scan_remove_button = QPushButton("Remove")
         self.scan_reset_button = QPushButton("Reset Default")
+        self.scan_add_button.setProperty("variant", "secondary")
+        self.scan_remove_button.setProperty("variant", "secondary")
+        self.scan_reset_button.setProperty("variant", "secondary")
         self.scan_add_button.clicked.connect(self.on_scan_add_row)
         self.scan_remove_button.clicked.connect(self.on_scan_remove_row)
         self.scan_reset_button.clicked.connect(self.on_scan_reset_default)
@@ -794,8 +854,11 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.scan_editor_box)
 
         button_row = QHBoxLayout()
+        self.compute_action_layout = button_row
         self.run_button = QPushButton("Run")
         self.stop_button = QPushButton("Stop")
+        self.run_button.setProperty("variant", "primary")
+        self.stop_button.setProperty("variant", "danger")
         self.run_button.clicked.connect(self.start_run)
         self.stop_button.clicked.connect(self.stop_run)
         button_row.addWidget(self.run_button)
@@ -803,6 +866,7 @@ class MainWindow(QMainWindow):
         left_layout.addLayout(button_row)
 
         self.compute_status_label = QLabel("")
+        self.compute_status_label.setObjectName("StatusCard")
         self.compute_status_label.setWordWrap(True)
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
@@ -810,50 +874,74 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.progress_bar)
 
         self.log_box = QPlainTextEdit()
+        self.log_box.setObjectName("LogPanel")
         self.log_box.setReadOnly(True)
         self.log_box.setMaximumBlockCount(500)
         left_layout.addWidget(self.log_box, stretch=1)
-        left_panel.setMaximumWidth(620)
+        self.compute_left_panel = left_panel
+        self.compute_left_scroll = self._wrap_panel_scroll(left_panel)
 
         right_panel = QWidget()
+        right_panel.setObjectName("PreviewCard")
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setSpacing(10)
+        right_layout.setContentsMargins(18, 18, 18, 18)
+        right_layout.setSpacing(12)
 
+        right_layout.addWidget(self._create_section_label("Live Preview"))
         self.damage_label = self._create_image_label("Damage snapshot will appear here.")
         self.curve_canvas = CurveCanvas()
         right_layout.addWidget(self.damage_label, stretch=3)
         right_layout.addWidget(self.curve_canvas, stretch=2)
+        self.compute_preview_card = right_panel
 
-        layout.addWidget(left_panel, stretch=0)
+        layout.addWidget(self.compute_left_scroll, stretch=0)
         layout.addWidget(right_panel, stretch=1)
         return page
 
     def _build_postprocess_tab(self):
         page = QWidget()
+        page.setObjectName("TabPage")
         layout = QVBoxLayout(page)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
 
-        top_row = QHBoxLayout()
-        top_row.addWidget(QLabel("View"))
+        toolbar_card = QWidget()
+        toolbar_card.setObjectName("PanelCard")
+        toolbar_layout = QVBoxLayout(toolbar_card)
+        toolbar_layout.setContentsMargins(18, 16, 18, 16)
+        toolbar_layout.setSpacing(10)
+
+        controls_row = QHBoxLayout()
+        controls_row.setSpacing(12)
+        self.postprocess_controls_layout = controls_row
+        controls_row.addWidget(self._create_control_label("View"))
         self.postprocess_view_combo = QComboBox()
         self.postprocess_view_combo.currentTextChanged.connect(self.on_postprocess_view_changed)
-        top_row.addWidget(self.postprocess_view_combo)
+        controls_row.addWidget(self.postprocess_view_combo)
 
-        top_row.addWidget(QLabel("History"))
+        controls_row.addWidget(self._create_control_label("History"))
         self.history_combo = QComboBox()
         self.history_combo.currentIndexChanged.connect(self.on_history_changed)
-        top_row.addWidget(self.history_combo, stretch=1)
+        controls_row.addWidget(self.history_combo, stretch=1)
+        toolbar_layout.addLayout(controls_row)
 
+        action_row = QHBoxLayout()
+        action_row.setSpacing(12)
+        self.postprocess_action_layout = action_row
         self.open_paraview_button = QPushButton("Open in ParaView")
+        self.open_paraview_button.setProperty("variant", "secondary")
         self.open_paraview_button.clicked.connect(self.open_in_paraview)
-        top_row.addWidget(self.open_paraview_button)
+        action_row.addWidget(self.open_paraview_button)
 
         self.export_results_button = QPushButton("Save Results")
+        self.export_results_button.setProperty("variant", "primary")
         self.export_results_button.clicked.connect(self.export_results)
-        top_row.addWidget(self.export_results_button)
-        layout.addLayout(top_row)
+        action_row.addWidget(self.export_results_button)
+        action_row.addStretch(1)
+        toolbar_layout.addLayout(action_row)
 
         self.postprocess_stack = QStackedWidget()
+        self.postprocess_stack.setObjectName("PreviewSurface")
         self.postprocess_label = self._create_image_label("Post-process output will appear here.")
         self.postprocess_curve_canvas = CurveCanvas()
         self.postprocess_curve_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -865,26 +953,305 @@ class MainWindow(QMainWindow):
         self.postprocess_stack.addWidget(self.postprocess_label)
         self.postprocess_stack.addWidget(self.postprocess_curve_canvas)
         self.postprocess_stack.addWidget(self.postprocess_table)
-        layout.addWidget(self.postprocess_stack, stretch=1)
+        toolbar_layout.addWidget(self.postprocess_stack, stretch=1)
 
         self.vtk_label = QLabel("Latest VTK: none")
+        self.vtk_label.setObjectName("MetaCard")
         self.vtk_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(self.vtk_label)
+        toolbar_layout.addWidget(self.vtk_label)
 
         self.postprocess_detail_label = QLabel("")
+        self.postprocess_detail_label.setObjectName("MetaCard")
         self.postprocess_detail_label.setWordWrap(True)
         self.postprocess_detail_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(self.postprocess_detail_label)
+        toolbar_layout.addWidget(self.postprocess_detail_label)
+        layout.addWidget(toolbar_card)
         return page
 
     def _create_image_label(self, text: str):
         label = QLabel(text)
+        label.setObjectName("PreviewLabel")
         label.setAlignment(Qt.AlignCenter)
         label.setMinimumHeight(420)
         label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        label.setStyleSheet("border: 1px solid #b0b0b0; background: #fafafa;")
         label.setWordWrap(True)
         return label
+
+    def _build_control_stack(self, label_text: str, widget: QWidget):
+        stack = QWidget()
+        stack_layout = QVBoxLayout(stack)
+        stack_layout.setContentsMargins(0, 0, 0, 0)
+        stack_layout.setSpacing(6)
+        stack_layout.addWidget(self._create_control_label(label_text))
+        widget.setMinimumWidth(190)
+        stack_layout.addWidget(widget)
+        return stack
+
+    def _wrap_panel_scroll(self, content: QWidget):
+        scroll = QScrollArea()
+        scroll.setObjectName("PanelScrollArea")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        return scroll
+
+    def _create_control_label(self, text: str):
+        label = QLabel(text)
+        label.setObjectName("ControlLabel")
+        return label
+
+    def _create_section_label(self, text: str):
+        label = QLabel(text)
+        label.setObjectName("SectionLabel")
+        return label
+
+    def _apply_theme(self):
+        self.setStyleSheet(
+            f"""
+            QWidget#AppRoot {{
+                background: #eef2f6;
+            }}
+            QWidget#HeaderCard,
+            QWidget#PanelCard,
+            QWidget#PreviewCard,
+            QWidget#ToolbarCard {{
+                background: #fbfcfe;
+                border: 1px solid #d8e0ea;
+                border-radius: 18px;
+            }}
+            QLabel#WindowTitleLabel {{
+                color: #132033;
+                font-size: {TITLE_FONT_SIZE}px;
+                font-weight: 700;
+            }}
+            QLabel#WindowSubtitleLabel {{
+                color: #6a7687;
+                font-size: {SUBTITLE_FONT_SIZE}px;
+            }}
+            QLabel#ControlLabel {{
+                color: #6c7788;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }}
+            QLabel#SectionLabel {{
+                color: #203046;
+                font-size: 13px;
+                font-weight: 700;
+            }}
+            QLabel#CaseStatusBadge {{
+                color: #21415f;
+                background: #e7f0fb;
+                border: 1px solid #c7d9ee;
+                border-radius: 12px;
+                padding: 8px 12px;
+                font-weight: 600;
+            }}
+            QLabel#IntroLabel,
+            QLabel#HintLabel,
+            QLabel#StatusCard,
+            QLabel#MetaCard {{
+                border-radius: 12px;
+                padding: 10px 12px;
+            }}
+            QLabel#IntroLabel {{
+                color: #37516c;
+                background: #eef5fb;
+                border: 1px solid #d4e3f1;
+            }}
+            QLabel#HintLabel {{
+                color: #637286;
+                background: #f5f7fa;
+                border: 1px dashed #d7dee8;
+            }}
+            QLabel#StatusCard {{
+                color: #1f344c;
+                background: #edf4ff;
+                border: 1px solid #d7e3f2;
+                font-weight: 600;
+            }}
+            QLabel#MetaCard {{
+                color: #55667b;
+                background: #f6f8fb;
+                border: 1px solid #dbe3ec;
+            }}
+            QLabel#PreviewLabel,
+            QStackedWidget#PreviewSurface,
+            QScrollArea#PanelScrollArea,
+            QPlainTextEdit#LogPanel,
+            QTableWidget {{
+                background: #ffffff;
+                border: 1px solid #d8e0ea;
+                border-radius: 14px;
+            }}
+            QScrollArea#PanelScrollArea > QWidget > QWidget {{
+                background: transparent;
+            }}
+            QLabel#PreviewLabel {{
+                color: #728096;
+                padding: 12px;
+            }}
+            QTabWidget::pane {{
+                border: none;
+                top: 0;
+            }}
+            QTabBar::tab {{
+                background: #dde5ee;
+                color: #5b687b;
+                border: none;
+                border-top-left-radius: 12px;
+                border-top-right-radius: 12px;
+                padding: 10px 18px;
+                margin-right: 6px;
+                font-weight: 600;
+            }}
+            QTabBar::tab:selected {{
+                background: #fbfcfe;
+                color: #17263a;
+            }}
+            QGroupBox {{
+                background: #ffffff;
+                border: 1px solid #dbe3ec;
+                border-radius: 14px;
+                margin-top: 14px;
+                padding-top: 10px;
+                font-weight: 700;
+                color: #223449;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 14px;
+                padding: 0 6px;
+                color: #223449;
+            }}
+            QLineEdit,
+            QComboBox,
+            QPlainTextEdit,
+            QTableWidget {{
+                color: #152338;
+                selection-background-color: #d7e7fb;
+                selection-color: #152338;
+            }}
+            QLineEdit,
+            QComboBox {{
+                min-height: 20px;
+                padding: 7px 10px;
+                border: 1px solid #cdd7e3;
+                border-radius: 10px;
+                background: #ffffff;
+            }}
+            QLineEdit:focus,
+            QComboBox:focus,
+            QPlainTextEdit:focus,
+            QTableWidget:focus {{
+                border: 1px solid #7aa7da;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 24px;
+            }}
+            QPushButton {{
+                min-height: 20px;
+                padding: 8px 14px;
+                border-radius: 11px;
+                border: 1px solid #cad5e2;
+                background: #ffffff;
+                color: #203247;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background: #f2f6fb;
+            }}
+            QPushButton[variant="primary"] {{
+                background: #1f6fb2;
+                border: 1px solid #1f6fb2;
+                color: #ffffff;
+            }}
+            QPushButton[variant="primary"]:hover {{
+                background: #1a629d;
+            }}
+            QPushButton[variant="secondary"] {{
+                background: #f5f8fc;
+                color: #27415d;
+            }}
+            QPushButton[variant="danger"] {{
+                background: #fff1ef;
+                border: 1px solid #efc0ba;
+                color: #a73a2f;
+            }}
+            QPushButton:disabled,
+            QComboBox:disabled,
+            QLineEdit:disabled {{
+                color: #94a0b0;
+                background: #eef2f6;
+                border-color: #d9e0e8;
+            }}
+            QProgressBar {{
+                min-height: 10px;
+                border: 1px solid #d8e0ea;
+                border-radius: 8px;
+                background: #edf2f7;
+                text-align: center;
+                color: #36506d;
+            }}
+            QProgressBar::chunk {{
+                border-radius: 7px;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #6ea5d8,
+                    stop:1 #1f6fb2
+                );
+            }}
+            QHeaderView::section {{
+                background: #eef3f8;
+                color: #45576d;
+                border: none;
+                border-bottom: 1px solid #d6e0ea;
+                padding: 8px;
+                font-weight: 700;
+            }}
+            """
+        )
+        self._apply_responsive_layout()
+
+    def _set_layout_direction(self, layout, horizontal: bool):
+        layout.setDirection(QBoxLayout.LeftToRight if horizontal else QBoxLayout.TopToBottom)
+
+    def _apply_responsive_layout(self):
+        width = max(self.width(), self.minimumWidth())
+        stacked_main = width < 1320
+        compact_actions = width < 1040
+        stacked_header = width < 1180
+
+        self._set_layout_direction(self.header_top_layout, not stacked_header)
+        self._set_layout_direction(self.header_controls_layout, not compact_actions)
+        self._set_layout_direction(self.mesh_main_layout, not stacked_main)
+        self._set_layout_direction(self.compute_main_layout, not stacked_main)
+        self._set_layout_direction(self.scan_button_layout, not compact_actions)
+        self._set_layout_direction(self.compute_action_layout, not compact_actions)
+        self._set_layout_direction(self.postprocess_controls_layout, not compact_actions)
+        self._set_layout_direction(self.postprocess_action_layout, not compact_actions)
+
+        self.mesh_left_scroll.setMaximumWidth(640 if not stacked_main else 16777215)
+        self.compute_left_scroll.setMaximumWidth(640 if not stacked_main else 16777215)
+        self.mesh_left_scroll.setMinimumWidth(0 if stacked_main else 360)
+        self.compute_left_scroll.setMinimumWidth(0 if stacked_main else 380)
+
+        preview_min_height = 300 if stacked_main else 420
+        self.mesh_preview_label.setMinimumHeight(preview_min_height)
+        self.damage_label.setMinimumHeight(preview_min_height)
+        self.postprocess_label.setMinimumHeight(preview_min_height)
+        self.postprocess_table.setMinimumHeight(260 if stacked_main else 340)
+
+        self.scan_add_button.setMinimumWidth(0 if compact_actions else 90)
+        self.scan_remove_button.setMinimumWidth(0 if compact_actions else 90)
+        self.scan_reset_button.setMinimumWidth(0 if compact_actions else 120)
+        self.run_button.setMinimumWidth(0 if compact_actions else 110)
+        self.stop_button.setMinimumWidth(0 if compact_actions else 110)
+        self.open_paraview_button.setMinimumWidth(0 if compact_actions else 150)
+        self.export_results_button.setMinimumWidth(0 if compact_actions else 120)
 
     def _sync_category_combo(self):
         self._syncing_selection = True
@@ -2355,6 +2722,7 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._apply_responsive_layout()
         state = self._current_state()
         self._set_label_image(self.mesh_preview_label, state["mesh_preview_path"], self._mesh_placeholder())
         self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder())

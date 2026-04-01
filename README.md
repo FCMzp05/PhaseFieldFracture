@@ -42,6 +42,8 @@
 - 已补 `Post-process` 动态视图的 headless 回归测试
 - 已为 scan 类 benchmark 补 `Summary Table / Comparison Curve` 专用结果视图
 - 已补 scan manifest 收集与 scan 结果视图的 headless 回归测试
+- 已统一主界面排版层级，补 header / card / badge / tab / form 的现代化样式
+- 已补窗口缩放下的响应式排版，窄宽度时主区自动上下堆叠，左侧参数区可滚动，操作按钮改为纵向排布
 
 ### 部分完成
 
@@ -49,6 +51,7 @@
 - 首层功能选择已并入顶部 `Category / Case` 两级选择，不是独立卡片入口页
 - `SENT / SENS` 支持实时日志、进度、快照、VTK、曲线刷新；batch case 当前以日志流和结束后回填结果为主
 - 结果视图已按 case 动态切换 `Mesh / Damage / Displacement / Curve / Summary Table / Comparison Curve / Visual Export`
+- 界面已较明显区分页面标题、分组标题、状态信息与结果区，但仍未细化更小窗口下的控件密度
 
 ### 未完成
 
@@ -115,5 +118,6 @@ peng_pf_ui/
 ## 下一步
 
 - 补更完整的系统测试与长程 benchmark 验证
+- 继续细化更小窗口下的表单密度、字号与按钮尺寸
 - 评估 scan 类 benchmark 的表格筛选、列排序与导出
 - 继续明确排除 `visual exporter` 新需求，先稳定主工作流、界面命名和缓存清理行为
