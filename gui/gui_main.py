@@ -118,7 +118,7 @@ SERIF_FONT_FAMILY_CANDIDATES = (
 )
 APP_FONT_FAMILY = PREFERRED_SERIF_FONT_FAMILY
 APP_FONT_SIZE = 17
-TITLE_FONT_SIZE = 28
+TITLE_FONT_SIZE = 34
 PLOT_FONT_SIZE = 16
 ANIMATION_FAST_MS = 150
 ANIMATION_MEDIUM_MS = 220
@@ -127,7 +127,7 @@ ANIMATION_TOAST_STAY_MS = 2200
 JULIA_COMMAND = "julia"
 GUI_ENVS_JULIA_PROJECT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia/environments/gui_envs"
 GUI_ENVS_JULIA_DEPOT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia"
-SUBTITLE_FONT_SIZE = 14
+SUBTITLE_FONT_SIZE = 16
 TOP_LEVEL_RESULT_PATTERNS = (
     "mesh_*.msh",
     "mesh_*.png",
@@ -385,10 +385,6 @@ class ImagePreviewWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        controls_layout = QHBoxLayout()
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.setSpacing(8)
-
         self.zoom_in_button = self._build_control_button("Zoom In", self.zoom_in)
         self.zoom_out_button = self._build_control_button("Zoom Out", self.zoom_out)
         self.fit_button = self._build_control_button("Fit View", self.fit_to_view)
@@ -396,21 +392,29 @@ class ImagePreviewWidget(QWidget):
         self.scroll_up_button = self._build_control_button("Up", self.scroll_up)
         self.scroll_down_button = self._build_control_button("Down", self.scroll_down)
 
-        for button in (
-            self.zoom_in_button,
-            self.zoom_out_button,
-            self.fit_button,
-            self.actual_size_button,
-            self.scroll_up_button,
-            self.scroll_down_button,
-        ):
-            controls_layout.addWidget(button)
+        toolbar = QWidget()
+        toolbar.setObjectName("PreviewToolbar")
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(0, 0, 0, 0)
+        toolbar_layout.setSpacing(10)
+        toolbar_layout.addWidget(self._build_control_group("Zoom", (self.zoom_in_button, self.zoom_out_button)))
+        toolbar_layout.addWidget(self._build_control_group("View", (self.fit_button, self.actual_size_button)))
+        toolbar_layout.addWidget(self._build_control_group("Pan", (self.scroll_up_button, self.scroll_down_button)))
+        toolbar_layout.addStretch(1)
 
+        status_pill = QWidget()
+        status_pill.setObjectName("PreviewStatusPill")
+        status_layout = QVBoxLayout(status_pill)
+        status_layout.setContentsMargins(12, 8, 12, 8)
+        status_layout.setSpacing(2)
+        status_title = QLabel("Scale")
+        status_title.setObjectName("PreviewToolbarMetaLabel")
+        status_layout.addWidget(status_title)
         self.zoom_status_label = QLabel("Fit")
         self.zoom_status_label.setObjectName("PreviewZoomLabel")
-        controls_layout.addWidget(self.zoom_status_label)
-        controls_layout.addStretch(1)
-        layout.addLayout(controls_layout)
+        status_layout.addWidget(self.zoom_status_label)
+        toolbar_layout.addWidget(status_pill, alignment=Qt.AlignVCenter)
+        layout.addWidget(toolbar)
 
         self.image_label = QLabel(placeholder_text)
         self.image_label.setObjectName("PreviewContentLabel")
@@ -434,9 +438,28 @@ class ImagePreviewWidget(QWidget):
     def _build_control_button(self, text: str, callback):
         button = QPushButton(text)
         button.setProperty("variant", "secondary")
-        button.setMinimumWidth(92)
+        button.setMinimumWidth(86)
         button.clicked.connect(callback)
         return button
+
+    def _build_control_group(self, title: str, buttons):
+        container = QWidget()
+        container.setObjectName("PreviewToolbarGroup")
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(12, 8, 12, 8)
+        container_layout.setSpacing(6)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("PreviewToolbarTitle")
+        container_layout.addWidget(title_label)
+
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.setSpacing(8)
+        for button in buttons:
+            button_row.addWidget(button)
+        container_layout.addLayout(button_row)
+        return container
 
     def has_image(self) -> bool:
         return not self._base_pixmap.isNull()
@@ -733,7 +756,7 @@ class BatchJuliaWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("peng_pf_ui - Benchmark Workbench")
+        self.setWindowTitle("")
         self.resize(1560, 940)
 
         self.worker = None
@@ -905,6 +928,27 @@ class MainWindow(QMainWindow):
             return "Planned case. Waiting for future integration."
         return "Waiting for compute stage."
 
+    def _case_header_summary(self, case):
+        workflow_text = (
+            "Mesh -> Compute -> Post-Process"
+            if case.mesh_stage_enabled
+            else "Compute-Built Mesh -> Post-Process"
+        )
+        backend_text = (
+            "Real-Time Protocol Solver"
+            if case.backend_mode == "protocol_julia"
+            else "Batch Benchmark Runner"
+        )
+        return (
+            f"Current Case: {case.category_label} / {case.display_name}. "
+            f"Workflow: {workflow_text}. Backend: {backend_text}."
+        )
+
+    def _case_badge_text(self, case):
+        backend_text = "Real-Time Protocol" if case.backend_mode == "protocol_julia" else "Batch Benchmark"
+        mesh_text = "Mesh Stage" if case.mesh_stage_enabled else "Compute-Built Mesh"
+        return f"{backend_text} · {mesh_text}"
+
     def _build_ui(self):
         root = QWidget()
         root.setObjectName("AppRoot")
@@ -926,10 +970,10 @@ class MainWindow(QMainWindow):
         title_layout = QVBoxLayout(title_block)
         title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.setSpacing(4)
-        title = QLabel("Benchmark Workbench")
-        title.setObjectName("WindowTitleLabel")
-        title_layout.addWidget(title)
-        self.window_subtitle_label = QLabel("Preset benchmark workflows for mesh, compute, and post-process.")
+        self.window_title_label = QLabel("Phase-Field Fracture Workbench")
+        self.window_title_label.setObjectName("WindowTitleLabel")
+        title_layout.addWidget(self.window_title_label)
+        self.window_subtitle_label = QLabel("")
         self.window_subtitle_label.setObjectName("WindowSubtitleLabel")
         self.window_subtitle_label.setWordWrap(True)
         title_layout.addWidget(self.window_subtitle_label)
@@ -1331,6 +1375,7 @@ class MainWindow(QMainWindow):
             QLabel#WindowSubtitleLabel {{
                 color: #4f5f73;
                 font-size: {SUBTITLE_FONT_SIZE}px;
+                font-weight: 600;
             }}
             QLabel#ControlLabel {{
                 color: #4e5f73;
@@ -1354,6 +1399,7 @@ class MainWindow(QMainWindow):
                 border: 1px solid #aebfd3;
                 border-radius: 12px;
                 padding: 6px 14px;
+                font-size: 16px;
                 font-weight: 600;
             }}
             QLabel#IntroLabel,
@@ -1402,10 +1448,18 @@ class MainWindow(QMainWindow):
                 background: rgba(128, 38, 40, 234);
             }}
             QLabel#PreviewZoomLabel {{
-                color: #46586d;
-                padding: 0 4px;
-                font-size: 13px;
+                color: #17324f;
+                padding: 0;
+                font-size: 15px;
                 font-weight: 600;
+            }}
+            QLabel#PreviewToolbarTitle,
+            QLabel#PreviewToolbarMetaLabel {{
+                color: #56687d;
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
             }}
             QLabel#PreviewLabel,
             QScrollArea#PreviewImageArea,
@@ -1429,6 +1483,12 @@ class MainWindow(QMainWindow):
                 color: #57687d;
                 padding: 14px;
                 background: transparent;
+            }}
+            QWidget#PreviewToolbarGroup,
+            QWidget#PreviewStatusPill {{
+                background: #e8eff6;
+                border: 1px solid #c1ccd8;
+                border-radius: 14px;
             }}
             QTabWidget::pane {{
                 border: none;
@@ -2782,9 +2842,8 @@ class MainWindow(QMainWindow):
         state = self._current_state()
         case = self._current_case_def()
         if hasattr(self, "case_status_badge"):
-            self.case_status_badge.setText(
-                f"{case.category_label} / {case.display_name}"
-            )
+            self.case_status_badge.setText(self._case_badge_text(case))
+        self.window_subtitle_label.setText(self._case_header_summary(case))
 
         self.mesh_intro_label.setText(
             "Generate mesh first, then run compute." if case.mesh_stage_enabled else "This benchmark creates its mesh during compute."
