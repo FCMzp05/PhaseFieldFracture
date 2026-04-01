@@ -2,7 +2,7 @@
 #
 # Verified runtime versions:
 # - Python 3.13.12
-# - Julia 1.10.4
+# - System Julia 1.12.5
 # - PyQt 5.15.11
 # - matplotlib 3.10.8
 # - numpy 2.4.3
@@ -12,7 +12,12 @@
 # - matplotlib=3.10.8
 # - meshio=5.3.5
 #
-# Verified top-level Julia packages in $CONDA_PREFIX/julia_project:
+# Julia runtime note:
+# - Julia is not installed from this conda environment
+# - GUI launches the system `julia` from PATH
+# - Current binary path: /home/dazhi_zhao/opt/julia-1.12.5/bin/julia
+#
+# Verified top-level Julia packages in the active system Julia environment:
 # - Gmsh v0.3.1
 # - Gridap v0.20.3
 # - GridapGmsh v0.7.4
@@ -62,7 +67,6 @@ dependencies:
   - gstreamer=1.24.7
   - harfbuzz=11.0.0
   - icu=75.1
-  - julia=1.10.4
   - keyutils=1.6.3
   - kiwisolver=1.5.0
   - krb5=1.21.3

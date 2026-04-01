@@ -330,13 +330,13 @@ MESH_FIELD_SPECS: Tuple[Tuple[str, Tuple[FieldSpec, ...]], ...] = (
     (
         "Mesh",
         (
-            FieldSpec("h_fine", "Fine mesh h_fine (mm)", COMMON_FIELD_CASES | DOUBLE_NOTCHED_CASES | PLASTIC_SENT_CASES | PLASTIC_CT_CASES),
-            FieldSpec("h_coarse", "Coarse mesh h_coarse (mm)", COMMON_FIELD_CASES | OFFSET_CASES | FANG_CASES | DOUBLE_NOTCHED_CASES | PLASTIC_SENT_CASES | PLASTIC_CT_CASES),
-            FieldSpec("hfc", "Crack-tip mesh hfc (mm)", TPB_CASES),
-            FieldSpec("hf", "Refined mesh hf (mm)", TPB_CASES),
-            FieldSpec("h", "Far-field mesh h (mm)", TPB_CASES),
-            FieldSpec("h_band", "Band mesh h_band (mm)", OFFSET_CASES),
-            FieldSpec("BAND_MARGIN_Y", "Band margin Y (mm)", OFFSET_CASES),
+            FieldSpec("h_fine", "Fine mesh size h_fine (mm)", COMMON_FIELD_CASES | DOUBLE_NOTCHED_CASES | PLASTIC_SENT_CASES | PLASTIC_CT_CASES),
+            FieldSpec("h_coarse", "Coarse mesh size h_coarse (mm)", COMMON_FIELD_CASES | OFFSET_CASES | FANG_CASES | DOUBLE_NOTCHED_CASES | PLASTIC_SENT_CASES | PLASTIC_CT_CASES),
+            FieldSpec("hfc", "Tip mesh size h_tip (mm)", TPB_CASES),
+            FieldSpec("hf", "Refined mesh size h_refined (mm)", TPB_CASES),
+            FieldSpec("h", "Far-field mesh size h_far (mm)", TPB_CASES),
+            FieldSpec("h_band", "Band mesh size h_band (mm)", OFFSET_CASES),
+            FieldSpec("BAND_MARGIN_Y", "Refinement band margin Y (mm)", OFFSET_CASES),
         ),
     ),
 )

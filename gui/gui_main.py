@@ -83,8 +83,10 @@ MANIFEST_DIR = RESULTS_DIR / "manifests"
 VISUAL_EXPORT_DIR = RESULTS_DIR / "visual_exports"
 STOP_FLAG = GUI_DIR / "gui_stop.flag"
 DEFAULT_PARAMS_PATH = GUI_DIR / "params_default.json"
-CONDA_HOOK = "/home/dazhi_zhao/miniforge3/bin/conda"
 APP_FONT_FAMILY = "Times New Roman"
+JULIA_COMMAND = "julia"
+GUI_ENVS_JULIA_PROJECT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia/environments/gui_envs"
+GUI_ENVS_JULIA_DEPOT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia"
 
 mpl.rcParams["font.family"] = APP_FONT_FAMILY
 
@@ -121,21 +123,6 @@ def latest_manifest_path(case_id: str) -> Path:
     return MANIFEST_DIR / f"{case_id}_latest.json"
 
 
-def conda_activate_prefix() -> str:
-    return (
-        f'eval "$({CONDA_HOOK} shell.bash hook)" && '
-        'if conda env list | awk "{print $1}" | grep -qx "pf_env"; then '
-        'conda activate pf_env; '
-        'elif conda env list | awk "{print $1}" | grep -qx "pf-env"; then '
-        'conda activate pf-env; '
-        'elif conda env list | awk "{print $1}" | grep -qx "gui_envs"; then '
-        'conda activate gui_envs; '
-        'else '
-        'echo "ERROR Missing conda env: expected pf_env, pf-env, or gui_envs" && exit 1; '
-        'fi && '
-    )
-
-
 def first_existing(*paths: Path) -> Path | None:
     for path in paths:
         if path.exists():
@@ -145,6 +132,13 @@ def first_existing(*paths: Path) -> Path | None:
 
 def sorted_existing(paths):
     return [path for path in sorted(paths) if path.exists()]
+
+
+def julia_env_prefix() -> str:
+    return (
+        f'export JULIA_PROJECT="{GUI_ENVS_JULIA_PROJECT}" && '
+        f'export JULIA_DEPOT_PATH="{GUI_ENVS_JULIA_DEPOT}" && '
+    )
 
 
 class CurveCanvas(FigureCanvas):
@@ -197,10 +191,7 @@ class ProtocolJuliaWorker(QThread):
 
     def run(self):
         solver_path = GUI_DIR / "gui_solver.jl"
-        cmd = (
-            f"{conda_activate_prefix()}"
-            f'julia "{solver_path}" "{self.params_path}"'
-        )
+        cmd = f'{julia_env_prefix()}{JULIA_COMMAND} "{solver_path}" "{self.params_path}"'
         stage_label = "mesh" if self.run_mode == "mesh" else "compute"
         self.status_update.emit(f"Launching Julia {self.protocol_case_name} {stage_label} stage...")
         self._process = subprocess.Popen(
@@ -305,10 +296,7 @@ class BatchJuliaWorker(QThread):
             self._process.terminate()
 
     def run(self):
-        cmd = (
-            f"{conda_activate_prefix()}"
-            f'julia "{self.script_path}" "{self.params_path}"'
-        )
+        cmd = f'{julia_env_prefix()}{JULIA_COMMAND} "{self.script_path}" "{self.params_path}"'
         stage_label = "mesh" if self.run_mode == "mesh" else "compute"
         self.status_update.emit(f"Launching benchmark script: {self.script_path.name} [{stage_label}]")
         self._process = subprocess.Popen(
