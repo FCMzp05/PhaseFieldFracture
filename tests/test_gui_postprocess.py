@@ -6,6 +6,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtWidgets import QApplication
 
 import gui.gui_main as gui_main
@@ -113,6 +114,34 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertEqual(self.window.history_combo.count(), 1)
         self.assertEqual(self.window.history_combo.itemData(0), str(curve_csv))
         self.assertIn(str(curve_csv), self.window.postprocess_detail_label.text())
+
+    def test_mesh_preview_widget_supports_zoom_and_vertical_scroll(self):
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.app.processEvents()
+
+        image_path = self.temp_path / "mesh_preview.png"
+        image = QImage(320, 1400, QImage.Format_RGB32)
+        image.fill(QColor("#ffffff"))
+        self.assertTrue(image.save(str(image_path)))
+
+        viewer = self.window.mesh_preview_label
+        self.window._set_label_image(viewer, image_path, "Mesh preview will appear here.", animate=False)
+        viewer.show_actual_size()
+        self.app.processEvents()
+
+        scrollbar = viewer.scroll_area.verticalScrollBar()
+        self.assertGreater(scrollbar.maximum(), 0)
+
+        start_value = scrollbar.value()
+        viewer.scroll_down()
+        self.app.processEvents()
+        self.assertGreater(scrollbar.value(), start_value)
+
+        viewer.scroll_up()
+        self.app.processEvents()
+        self.assertLessEqual(scrollbar.value(), start_value)
 
 
 if __name__ == "__main__":

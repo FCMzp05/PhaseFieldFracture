@@ -2,20 +2,34 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import matplotlib as mpl
-from PyQt5.QtCore import QThread, Qt, pyqtSignal
-from PyQt5.QtGui import QFont, QPixmap
+from PyQt5.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QParallelAnimationGroup,
+    QPropertyAnimation,
+    QRect,
+    QSequentialAnimationGroup,
+    QThread,
+    QTimer,
+    Qt,
+    pyqtSignal,
+)
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QBoxLayout,
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect,
     QGroupBox,
     QHeaderView,
     QHBoxLayout,
@@ -93,10 +107,23 @@ RUNS_DIR = RESULTS_DIR / "runs"
 VISUAL_EXPORT_DIR = RESULTS_DIR / "visual_exports"
 STOP_FLAG = GUI_DIR / "gui_stop.flag"
 DEFAULT_PARAMS_PATH = GUI_DIR / "params_default.json"
-APP_FONT_FAMILY = "Times New Roman"
+PREFERRED_SERIF_FONT_FAMILY = "Times"
+SERIF_FONT_FAMILY_CANDIDATES = (
+    PREFERRED_SERIF_FONT_FAMILY,
+    "Times New Roman",
+    "Nimbus Roman No9 L",
+    "TeX Gyre Termes",
+    "Liberation Serif",
+    "DejaVu Serif",
+)
+APP_FONT_FAMILY = PREFERRED_SERIF_FONT_FAMILY
 APP_FONT_SIZE = 15
 TITLE_FONT_SIZE = 24
 PLOT_FONT_SIZE = 14
+ANIMATION_FAST_MS = 150
+ANIMATION_MEDIUM_MS = 220
+ANIMATION_SLOW_MS = 320
+ANIMATION_TOAST_STAY_MS = 2200
 JULIA_COMMAND = "julia"
 GUI_ENVS_JULIA_PROJECT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia/environments/gui_envs"
 GUI_ENVS_JULIA_DEPOT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia"
@@ -114,8 +141,8 @@ TOP_LEVEL_RESULT_PATTERNS = (
 
 mpl.rcParams.update(
     {
-        "font.family": APP_FONT_FAMILY,
-        "font.serif": [APP_FONT_FAMILY],
+        "font.family": "serif",
+        "font.serif": list(SERIF_FONT_FAMILY_CANDIDATES),
         "font.size": PLOT_FONT_SIZE,
         "axes.titlesize": PLOT_FONT_SIZE,
         "axes.labelsize": PLOT_FONT_SIZE,
@@ -126,6 +153,15 @@ mpl.rcParams.update(
         "ytick.direction": "in",
     }
 )
+
+
+def resolve_qt_serif_font_family() -> str:
+    available_families = {family.casefold(): family for family in QFontDatabase().families()}
+    for family in SERIF_FONT_FAMILY_CANDIDATES:
+        matched_family = available_families.get(family.casefold())
+        if matched_family is not None:
+            return matched_family
+    return APP_FONT_FAMILY
 
 
 def mesh_file_name(protocol_case_name: str) -> str:
@@ -205,6 +241,23 @@ def julia_env_prefix() -> str:
     )
 
 
+def julia_subprocess_env():
+    env = dict(os.environ)
+    env["JULIA_PROJECT"] = GUI_ENVS_JULIA_PROJECT
+    env["JULIA_DEPOT_PATH"] = GUI_ENVS_JULIA_DEPOT
+    env["GKS_WSTYPE"] = "100"
+    for key in (
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "QT_QPA_PLATFORM",
+        "QT_PLUGIN_PATH",
+        "QML2_IMPORT_PATH",
+        "XDG_RUNTIME_DIR",
+    ):
+        env.pop(key, None)
+    return env
+
+
 def purge_transient_gui_results() -> None:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -275,7 +328,7 @@ def serialize_scan_cases(scan_rows, scan_columns):
 
 class CurveCanvas(FigureCanvas):
     def __init__(self):
-        self.figure = Figure(figsize=(5, 4), tight_layout=True)
+        self.figure = Figure(figsize=(5, 4))
         self.axes = self.figure.add_subplot(111)
         self._x_label = "u (mm)"
         self._y_label = "F (kN)"
@@ -314,7 +367,193 @@ class CurveCanvas(FigureCanvas):
             spine.set_visible(True)
         if len(series) > 1 and any(item.get("label") for item in series):
             self.axes.legend()
+        self.figure.subplots_adjust(left=0.16, right=0.97, bottom=0.18, top=0.95)
         self.draw_idle()
+
+
+class ImagePreviewWidget(QWidget):
+    def __init__(self, placeholder_text: str):
+        super().__init__()
+        self._placeholder_text = placeholder_text
+        self._base_pixmap = QPixmap()
+        self._scale_factor = 1.0
+        self._fit_to_view = True
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        controls_layout = QHBoxLayout()
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(8)
+
+        self.zoom_in_button = self._build_control_button("Zoom In", self.zoom_in)
+        self.zoom_out_button = self._build_control_button("Zoom Out", self.zoom_out)
+        self.fit_button = self._build_control_button("Fit View", self.fit_to_view)
+        self.actual_size_button = self._build_control_button("Actual Size", self.show_actual_size)
+        self.scroll_up_button = self._build_control_button("Up", self.scroll_up)
+        self.scroll_down_button = self._build_control_button("Down", self.scroll_down)
+
+        for button in (
+            self.zoom_in_button,
+            self.zoom_out_button,
+            self.fit_button,
+            self.actual_size_button,
+            self.scroll_up_button,
+            self.scroll_down_button,
+        ):
+            controls_layout.addWidget(button)
+
+        self.zoom_status_label = QLabel("Fit")
+        self.zoom_status_label.setObjectName("PreviewZoomLabel")
+        controls_layout.addWidget(self.zoom_status_label)
+        controls_layout.addStretch(1)
+        layout.addLayout(controls_layout)
+
+        self.image_label = QLabel(placeholder_text)
+        self.image_label.setObjectName("PreviewContentLabel")
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setWordWrap(True)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("PreviewImageArea")
+        self.scroll_area.setWidget(self.image_label)
+        self.scroll_area.setWidgetResizable(False)
+        self.scroll_area.setAlignment(Qt.AlignCenter)
+        self.scroll_area.setFrameShape(QScrollArea.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        layout.addWidget(self.scroll_area, stretch=1)
+
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumHeight(420)
+        self._update_controls()
+
+    def _build_control_button(self, text: str, callback):
+        button = QPushButton(text)
+        button.setProperty("variant", "secondary")
+        button.setMinimumWidth(92)
+        button.clicked.connect(callback)
+        return button
+
+    def has_image(self) -> bool:
+        return not self._base_pixmap.isNull()
+
+    def clear_image(self, placeholder_text: str):
+        self._placeholder_text = placeholder_text
+        self._base_pixmap = QPixmap()
+        self._scale_factor = 1.0
+        self._fit_to_view = True
+        self.image_label.setPixmap(QPixmap())
+        self.image_label.setText(placeholder_text)
+        self.image_label.adjustSize()
+        self.zoom_status_label.setText("Fit")
+        self._update_controls()
+
+    def set_image(self, image_path: Path | None, placeholder_text: str):
+        self._placeholder_text = placeholder_text
+        if image_path is None or not image_path.exists():
+            self.clear_image(placeholder_text)
+            return
+
+        pixmap = QPixmap(str(image_path))
+        if pixmap.isNull():
+            self.clear_image(placeholder_text)
+            return
+
+        self._base_pixmap = pixmap
+        self._scale_factor = 1.0
+        self._fit_to_view = True
+        self._render_pixmap()
+        self._update_controls()
+
+    def fit_to_view(self):
+        if not self.has_image():
+            return
+        self._fit_to_view = True
+        self._render_pixmap()
+
+    def show_actual_size(self):
+        if not self.has_image():
+            return
+        self._fit_to_view = False
+        self._scale_factor = 1.0
+        self._render_pixmap()
+
+    def zoom_in(self):
+        self._set_manual_scale(self._current_scale_factor() * 1.2)
+
+    def zoom_out(self):
+        self._set_manual_scale(self._current_scale_factor() / 1.2)
+
+    def scroll_up(self):
+        self._scroll_vertically(-1)
+
+    def scroll_down(self):
+        self._scroll_vertically(1)
+
+    def _set_manual_scale(self, scale_factor: float):
+        if not self.has_image():
+            return
+        self._fit_to_view = False
+        self._scale_factor = max(0.2, min(scale_factor, 6.0))
+        self._render_pixmap()
+
+    def _current_scale_factor(self) -> float:
+        if not self.has_image():
+            return 1.0
+        if not self._fit_to_view:
+            return self._scale_factor
+
+        viewport = self.scroll_area.viewport().size()
+        if viewport.width() <= 0 or viewport.height() <= 0:
+            return 1.0
+        return min(viewport.width() / self._base_pixmap.width(), viewport.height() / self._base_pixmap.height())
+
+    def _render_pixmap(self):
+        if not self.has_image():
+            self.clear_image(self._placeholder_text)
+            return
+
+        if self._fit_to_view:
+            viewport = self.scroll_area.viewport().size()
+            target_width = max(1, viewport.width() - 4)
+            target_height = max(1, viewport.height() - 4)
+            scaled = self._base_pixmap.scaled(target_width, target_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scale_text = "Fit"
+        else:
+            target_width = max(1, int(round(self._base_pixmap.width() * self._scale_factor)))
+            target_height = max(1, int(round(self._base_pixmap.height() * self._scale_factor)))
+            scaled = self._base_pixmap.scaled(target_width, target_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scale_text = f"{int(round(self._scale_factor * 100))}%"
+
+        self.image_label.setText("")
+        self.image_label.setPixmap(scaled)
+        self.image_label.resize(scaled.size())
+        self.image_label.adjustSize()
+        self.zoom_status_label.setText(scale_text)
+
+    def _scroll_vertically(self, direction: int):
+        scrollbar = self.scroll_area.verticalScrollBar()
+        step = max(60, int(round(self.scroll_area.viewport().height() * 0.18)))
+        scrollbar.setValue(scrollbar.value() + direction * step)
+
+    def _update_controls(self):
+        enabled = self.has_image()
+        for button in (
+            self.zoom_in_button,
+            self.zoom_out_button,
+            self.fit_button,
+            self.actual_size_button,
+            self.scroll_up_button,
+            self.scroll_down_button,
+        ):
+            button.setEnabled(enabled)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._fit_to_view and self.has_image():
+            self._render_pixmap()
 
 
 class ProtocolJuliaWorker(QThread):
@@ -339,13 +578,13 @@ class ProtocolJuliaWorker(QThread):
     def stop(self):
         self._stop_requested = True
         STOP_FLAG.write_text("stop\n", encoding="utf-8")
-        self.status_update.emit("Stopping Solver...")
+        self.status_update.emit("Stopping solver...")
 
     def run(self):
         solver_path = GUI_DIR / "gui_solver.jl"
         cmd = f'{julia_env_prefix()}{JULIA_COMMAND} "{solver_path}" "{self.params_path}"'
         stage_label = "mesh" if self.run_mode == "mesh" else "compute"
-        self.status_update.emit(f"Launching Julia {self.protocol_case_name} {stage_label.title()} Stage...")
+        self.status_update.emit(f"Launching Julia {self.protocol_case_name} {stage_label} stage...")
         self._process = subprocess.Popen(
             ["bash", "-lc", cmd],
             cwd=str(REPO_ROOT),
@@ -353,10 +592,11 @@ class ProtocolJuliaWorker(QThread):
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=julia_subprocess_env(),
         )
 
         success = False
-        message = "Solver Finished."
+        message = "Solver finished."
         try:
             assert self._process.stdout is not None
             for raw_line in self._process.stdout:
@@ -369,14 +609,14 @@ class ProtocolJuliaWorker(QThread):
             return_code = self._process.wait()
             if self._stop_requested:
                 success = True
-                message = "Stopped By User."
+                message = "Stopped by user."
             elif return_code == 0:
                 success = True
-                message = "Mesh Generated." if self.run_mode == "mesh" else "Run Completed."
+                message = "Mesh generated." if self.run_mode == "mesh" else "Run completed."
             else:
-                message = f"Solver Exited With Code {return_code}."
+                message = f"Solver exited with code {return_code}."
         except Exception as exc:
-            message = f"Worker Error: {exc}"
+            message = f"Worker error: {exc}"
             self.log_line.emit(message)
         finally:
             self.finished_state.emit(success, self.case_id, self.run_mode, message)
@@ -404,7 +644,7 @@ class ProtocolJuliaWorker(QThread):
             self.displacement_update.emit(line.split(" ", 1)[1])
             return
         if line.startswith("DONE"):
-            self.status_update.emit("Solver Finished.")
+            self.status_update.emit("Solver finished.")
             if self.run_mode == "compute":
                 self.progress_update.emit(100.0)
             return
@@ -443,14 +683,14 @@ class BatchJuliaWorker(QThread):
 
     def stop(self):
         self._stop_requested = True
-        self.status_update.emit("Stopping Benchmark...")
+        self.status_update.emit("Stopping benchmark...")
         if self._process is not None and self._process.poll() is None:
             self._process.terminate()
 
     def run(self):
         cmd = f'{julia_env_prefix()}{JULIA_COMMAND} "{self.script_path}" "{self.params_path}"'
         stage_label = "mesh" if self.run_mode == "mesh" else "compute"
-        self.status_update.emit(f"Launching Benchmark Script: {self.script_path.name} [{stage_label.title()}]")
+        self.status_update.emit(f"Launching benchmark script: {self.script_path.name} [{stage_label}]")
         self._process = subprocess.Popen(
             ["bash", "-lc", cmd],
             cwd=str(REPO_ROOT),
@@ -458,10 +698,11 @@ class BatchJuliaWorker(QThread):
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=julia_subprocess_env(),
         )
 
         success = False
-        message = "Benchmark Finished."
+        message = "Benchmark finished."
         try:
             assert self._process.stdout is not None
             for raw_line in self._process.stdout:
@@ -473,15 +714,15 @@ class BatchJuliaWorker(QThread):
             return_code = self._process.wait()
             if self._stop_requested:
                 success = True
-                message = "Stopped By User."
+                message = "Stopped by user."
             elif return_code == 0:
                 success = True
                 self.progress_update.emit(100.0)
-                message = "Batch Mesh Completed." if self.run_mode == "mesh" else "Batch Benchmark Completed."
+                message = "Batch mesh completed." if self.run_mode == "mesh" else "Batch benchmark completed."
             else:
-                message = f"Benchmark Exited With Code {return_code}."
+                message = f"Benchmark exited with code {return_code}."
         except Exception as exc:
-            message = f"Worker Error: {exc}"
+            message = f"Worker error: {exc}"
             self.log_line.emit(message)
         finally:
             self.finished_state.emit(success, self.case_id, self.run_mode, message)
@@ -508,6 +749,16 @@ class MainWindow(QMainWindow):
         self._syncing_run_profile = False
         self._syncing_scan_table = False
         self._syncing_postprocess_view = False
+        self._entrance_animation_started = False
+        self._progress_animation = None
+        self._button_hover_animations = {}
+        self._button_rest_geometries = {}
+        self._section_animations = {}
+        self._section_bindings_by_widget = {}
+        self._toast_animation = None
+        self._toast_hide_timer = QTimer(self)
+        self._toast_hide_timer.setSingleShot(True)
+        self._toast_hide_timer.timeout.connect(self._hide_toast)
 
         self.paraview_executable = shutil.which("paraview")
         self.run_profile_overrides = {}
@@ -523,6 +774,8 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._apply_theme()
+        self._apply_depth_effects()
+        self._register_animated_buttons()
         self._load_manifests_from_disk()
         self._sync_category_combo()
         self._refresh_case_combo(self.current_category, preferred_case_id=self.current_case)
@@ -640,15 +893,15 @@ class MainWindow(QMainWindow):
 
     def _default_mesh_status(self, case):
         if not case.is_ready:
-            return "Planned Case. Compute Is Not Available Yet."
+            return "Planned case. Compute is not available yet."
         if not case.mesh_stage_enabled:
-            return "This Benchmark Builds Its Mesh During Compute."
-        return "Mesh Not Generated."
+            return "This benchmark builds its mesh during compute."
+        return "Mesh not generated."
 
     def _default_compute_status(self, case):
         if not case.is_ready:
-            return "Planned Case. Waiting For Future Integration."
-        return "Waiting For Compute Stage."
+            return "Planned case. Waiting for future integration."
+        return "Waiting for compute stage."
 
     def _build_ui(self):
         root = QWidget()
@@ -674,7 +927,7 @@ class MainWindow(QMainWindow):
         title = QLabel("Benchmark Workbench")
         title.setObjectName("WindowTitleLabel")
         title_layout.addWidget(title)
-        self.window_subtitle_label = QLabel("Preset Benchmark Workflows For Mesh, Compute, And Post-Process.")
+        self.window_subtitle_label = QLabel("Preset benchmark workflows for mesh, compute, and post-process.")
         self.window_subtitle_label.setObjectName("WindowSubtitleLabel")
         self.window_subtitle_label.setWordWrap(True)
         title_layout.addWidget(self.window_subtitle_label)
@@ -699,11 +952,20 @@ class MainWindow(QMainWindow):
 
         self.case_status_badge = QLabel("")
         self.case_status_badge.setObjectName("CaseStatusBadge")
-        header_layout.addWidget(self.case_status_badge)
+        self.case_status_badge.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        badge_row = QHBoxLayout()
+        badge_row.setContentsMargins(0, 0, 0, 0)
+        badge_row.setSpacing(0)
+        badge_row.addWidget(self.case_status_badge)
+        badge_row.addStretch(1)
+        header_layout.addLayout(badge_row)
         root_layout.addWidget(header_card)
+        self.header_card = header_card
+        self.controls_card = controls_card
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
+        self.tabs.currentChanged.connect(self.on_tab_changed)
         self.mesh_tab_index = self.tabs.addTab(self._build_mesh_tab(), "Mesh")
         self.compute_tab_index = self.tabs.addTab(self._build_compute_tab(), "Compute")
         self.post_tab_index = self.tabs.addTab(self._build_postprocess_tab(), "Post-Process")
@@ -730,21 +992,19 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.mesh_intro_label)
 
         for group_title, fields in MESH_FIELD_SPECS:
-            box = QGroupBox(group_title)
-            form = QFormLayout(box)
-            form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            field_keys = []
+            section_binding = self._make_form_section(group_title)
+            box = section_binding["section"]
+            form = section_binding["form"]
             for field in fields:
                 line_edit = QLineEdit(self._current_state()["params"].get(field.key, ""))
                 line_edit.textChanged.connect(lambda _text, field_key=field.key, mesh_field=True: self.on_input_changed(field_key, mesh_field))
                 form.addRow(field.label, line_edit)
                 self.inputs[field.key] = line_edit
-                self.field_bindings[field.key] = {"widget": line_edit, "form": form, "section": box}
-                field_keys.append(field.key)
-            self.section_bindings.append({"section": box, "field_keys": field_keys})
+                self.field_bindings[field.key] = {"widget": line_edit, "form": form, "section": section_binding}
+                section_binding["field_keys"].append(field.key)
             left_layout.addWidget(box)
 
-        self.mesh_empty_label = QLabel("This Case Has No Editable Mesh Parameters In The GUI.")
+        self.mesh_empty_label = QLabel("This case has no editable mesh parameters in the GUI.")
         self.mesh_empty_label.setObjectName("HintLabel")
         self.mesh_empty_label.setWordWrap(True)
         left_layout.addWidget(self.mesh_empty_label)
@@ -762,18 +1022,38 @@ class MainWindow(QMainWindow):
         self.mesh_left_panel = left_panel
         self.mesh_left_scroll = self._wrap_panel_scroll(left_panel)
 
-        self.mesh_preview_label = self._create_image_label("Mesh Preview Will Appear Here.")
+        self.mesh_preview_label = self._create_image_viewer("Mesh preview will appear here.")
         mesh_preview_card = QWidget()
         mesh_preview_card.setObjectName("PreviewCard")
         mesh_preview_layout = QVBoxLayout(mesh_preview_card)
-        mesh_preview_layout.setContentsMargins(18, 18, 18, 18)
-        mesh_preview_layout.setSpacing(12)
+        mesh_preview_layout.setContentsMargins(18, 16, 18, 18)
+        mesh_preview_layout.setSpacing(10)
         mesh_preview_layout.addWidget(self._create_section_label("Mesh Preview"))
         mesh_preview_layout.addWidget(self.mesh_preview_label, stretch=1)
         self.mesh_preview_card = mesh_preview_card
         layout.addWidget(self.mesh_left_scroll, stretch=0)
         layout.addWidget(mesh_preview_card, stretch=1)
         return page
+
+    def _make_form_section(self, group_title: str):
+        box = QGroupBox(group_title)
+        form = QFormLayout(box)
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        binding = {
+            "section": box,
+            "form": form,
+            "field_keys": [],
+            "title": group_title,
+            "expanded": True,
+            "collapsed_height": 46,
+        }
+        box.setProperty("collapsible_section", True)
+        box.setProperty("expanded", True)
+        box.installEventFilter(self)
+        self._set_section_title(binding)
+        self.section_bindings.append(binding)
+        self._section_bindings_by_widget[box] = binding
+        return binding
 
     def _build_compute_tab(self):
         page = QWidget()
@@ -795,21 +1075,19 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.compute_intro_label)
 
         for group_title, fields in COMPUTE_FIELD_SPECS:
-            box = QGroupBox(group_title)
-            form = QFormLayout(box)
-            form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            field_keys = []
+            section_binding = self._make_form_section(group_title)
+            box = section_binding["section"]
+            form = section_binding["form"]
             for field in fields:
                 line_edit = QLineEdit(self._current_state()["params"].get(field.key, ""))
                 line_edit.textChanged.connect(lambda _text, field_key=field.key, mesh_field=False: self.on_input_changed(field_key, mesh_field))
                 form.addRow(field.label, line_edit)
                 self.inputs[field.key] = line_edit
-                self.field_bindings[field.key] = {"widget": line_edit, "form": form, "section": box}
-                field_keys.append(field.key)
-            self.section_bindings.append({"section": box, "field_keys": field_keys})
+                self.field_bindings[field.key] = {"widget": line_edit, "form": form, "section": section_binding}
+                section_binding["field_keys"].append(field.key)
             left_layout.addWidget(box)
 
-        self.compute_empty_label = QLabel("This Case Currently Runs With Its Benchmark Defaults.")
+        self.compute_empty_label = QLabel("This case currently runs with its benchmark defaults.")
         self.compute_empty_label.setObjectName("HintLabel")
         self.compute_empty_label.setWordWrap(True)
         left_layout.addWidget(self.compute_empty_label)
@@ -826,7 +1104,7 @@ class MainWindow(QMainWindow):
 
         self.scan_editor_box = QGroupBox("Scan Cases")
         scan_layout = QVBoxLayout(self.scan_editor_box)
-        self.scan_editor_intro_label = QLabel("Edit The Scan List For This Benchmark.")
+        self.scan_editor_intro_label = QLabel("Edit the scan list for this benchmark.")
         self.scan_editor_intro_label.setWordWrap(True)
         scan_layout.addWidget(self.scan_editor_intro_label)
         self.scan_table = QTableWidget(0, 0)
@@ -888,7 +1166,7 @@ class MainWindow(QMainWindow):
         right_layout.setSpacing(12)
 
         right_layout.addWidget(self._create_section_label("Live Preview"))
-        self.damage_label = self._create_image_label("Damage Snapshot Will Appear Here.")
+        self.damage_label = self._create_image_label("Damage snapshot will appear here.")
         self.curve_canvas = CurveCanvas()
         right_layout.addWidget(self.damage_label, stretch=3)
         right_layout.addWidget(self.curve_canvas, stretch=2)
@@ -942,7 +1220,7 @@ class MainWindow(QMainWindow):
 
         self.postprocess_stack = QStackedWidget()
         self.postprocess_stack.setObjectName("PreviewSurface")
-        self.postprocess_label = self._create_image_label("Post-Process Output Will Appear Here.")
+        self.postprocess_label = self._create_image_viewer("Post-process output will appear here.")
         self.postprocess_curve_canvas = CurveCanvas()
         self.postprocess_curve_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.postprocess_table = QTableWidget(0, 0)
@@ -966,7 +1244,18 @@ class MainWindow(QMainWindow):
         self.postprocess_detail_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         toolbar_layout.addWidget(self.postprocess_detail_label)
         layout.addWidget(toolbar_card)
+        self.postprocess_toolbar_card = toolbar_card
         return page
+
+    def _build_toast_label(self, parent: QWidget):
+        label = QLabel(parent)
+        label.setObjectName("ToastLabel")
+        label.setWordWrap(True)
+        label.hide()
+        return label
+
+    def _create_image_viewer(self, text: str):
+        return ImagePreviewWidget(text)
 
     def _create_image_label(self, text: str):
         label = QLabel(text)
@@ -1010,14 +1299,23 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(
             f"""
             QWidget#AppRoot {{
-                background: #eef2f6;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #eef3f8,
+                    stop:0.45 #f5f8fc,
+                    stop:1 #edf2f7
+                );
             }}
             QWidget#HeaderCard,
             QWidget#PanelCard,
             QWidget#PreviewCard,
             QWidget#ToolbarCard {{
-                background: #fbfcfe;
-                border: 1px solid #d8e0ea;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #fcfdff,
+                    stop:1 #f6f9fc
+                );
+                border: 1px solid #d7e0ea;
                 border-radius: 18px;
             }}
             QLabel#WindowTitleLabel {{
@@ -1038,15 +1336,19 @@ class MainWindow(QMainWindow):
             }}
             QLabel#SectionLabel {{
                 color: #203046;
-                font-size: 13px;
+                font-size: 16px;
                 font-weight: 700;
             }}
             QLabel#CaseStatusBadge {{
                 color: #21415f;
-                background: #e7f0fb;
-                border: 1px solid #c7d9ee;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #edf5ff,
+                    stop:1 #e3eefb
+                );
+                border: 1px solid #c5d8ee;
                 border-radius: 12px;
-                padding: 8px 12px;
+                padding: 5px 12px;
                 font-weight: 600;
             }}
             QLabel#IntroLabel,
@@ -1077,7 +1379,31 @@ class MainWindow(QMainWindow):
                 background: #f6f8fb;
                 border: 1px solid #dbe3ec;
             }}
+            QLabel#ToastLabel {{
+                color: #ffffff;
+                background: rgba(20, 35, 56, 225);
+                border: 1px solid rgba(255, 255, 255, 24);
+                border-radius: 14px;
+                padding: 12px 14px;
+                font-weight: 600;
+            }}
+            QLabel#ToastLabel[tone="success"] {{
+                background: rgba(26, 94, 63, 230);
+            }}
+            QLabel#ToastLabel[tone="warning"] {{
+                background: rgba(169, 90, 26, 232);
+            }}
+            QLabel#ToastLabel[tone="error"] {{
+                background: rgba(145, 42, 44, 232);
+            }}
+            QLabel#PreviewZoomLabel {{
+                color: #617186;
+                padding: 0 4px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
             QLabel#PreviewLabel,
+            QScrollArea#PreviewImageArea,
             QStackedWidget#PreviewSurface,
             QScrollArea#PanelScrollArea,
             QPlainTextEdit#LogPanel,
@@ -1092,6 +1418,12 @@ class MainWindow(QMainWindow):
             QLabel#PreviewLabel {{
                 color: #728096;
                 padding: 12px;
+                background: transparent;
+            }}
+            QLabel#PreviewContentLabel {{
+                color: #728096;
+                padding: 12px;
+                background: transparent;
             }}
             QTabWidget::pane {{
                 border: none;
@@ -1103,7 +1435,7 @@ class MainWindow(QMainWindow):
                 border: none;
                 border-top-left-radius: 12px;
                 border-top-right-radius: 12px;
-                padding: 10px 18px;
+                padding: 8px 16px;
                 margin-right: 6px;
                 font-weight: 600;
             }}
@@ -1120,11 +1452,18 @@ class MainWindow(QMainWindow):
                 font-weight: 700;
                 color: #223449;
             }}
+            QGroupBox[collapsible_section="true"][expanded="false"] {{
+                background: #f8fafc;
+                border: 1px dashed #d7e0ea;
+            }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 14px;
                 padding: 0 6px;
                 color: #223449;
+            }}
+            QGroupBox[collapsible_section="true"][expanded="false"]::title {{
+                color: #5f7084;
             }}
             QLineEdit,
             QComboBox,
@@ -1164,16 +1503,27 @@ class MainWindow(QMainWindow):
             QPushButton:hover {{
                 background: #f2f6fb;
             }}
+            QPushButton[floating="true"] {{
+                border-color: #9ab9dd;
+            }}
             QPushButton[variant="primary"] {{
-                background: #1f6fb2;
-                border: 1px solid #1f6fb2;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #2b7cc0,
+                    stop:1 #1f62a7
+                );
+                border: 1px solid #1f67ab;
                 color: #ffffff;
             }}
             QPushButton[variant="primary"]:hover {{
-                background: #1a629d;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #327dbd,
+                    stop:1 #245f98
+                );
             }}
             QPushButton[variant="secondary"] {{
-                background: #f5f8fc;
+                background: #f6f9fd;
                 color: #27415d;
             }}
             QPushButton[variant="danger"] {{
@@ -1216,6 +1566,344 @@ class MainWindow(QMainWindow):
         )
         self._apply_responsive_layout()
 
+    def _apply_depth_effects(self):
+        for widget in (
+            self.header_card,
+            self.controls_card,
+            self.mesh_left_panel,
+            self.mesh_preview_card,
+            self.compute_left_panel,
+            self.compute_preview_card,
+            self.postprocess_toolbar_card,
+        ):
+            shadow = QGraphicsDropShadowEffect(self)
+            shadow.setBlurRadius(28)
+            shadow.setOffset(0, 8)
+            shadow.setColor(QColor(22, 42, 66, 28))
+            widget.setGraphicsEffect(shadow)
+        self.toast_label = self._build_toast_label(self.centralWidget())
+
+    def _ensure_opacity_effect(self, widget: QWidget):
+        effect = widget.graphicsEffect()
+        if isinstance(effect, QGraphicsOpacityEffect):
+            return effect
+        effect = QGraphicsOpacityEffect(widget)
+        effect.setOpacity(1.0)
+        widget.setGraphicsEffect(effect)
+        return effect
+
+    def _animate_widget_opacity(self, widget: QWidget, *, start: float, end: float, duration: int):
+        effect = self._ensure_opacity_effect(widget)
+        current_animation = getattr(widget, "_opacity_animation", None)
+        if current_animation is not None:
+            current_animation.stop()
+
+        effect.setOpacity(start)
+        animation = QPropertyAnimation(effect, b"opacity", self)
+        animation.setDuration(duration)
+        animation.setStartValue(start)
+        animation.setEndValue(end)
+        animation.setEasingCurve(QEasingCurve.InOutCubic)
+        widget._opacity_animation = animation
+
+        def _cleanup():
+            if getattr(widget, "_opacity_animation", None) is animation:
+                widget._opacity_animation = None
+            effect.setOpacity(end)
+
+        animation.finished.connect(_cleanup)
+        animation.start()
+
+    def _animate_content_swap(self, widget: QWidget, apply_content):
+        effect = self._ensure_opacity_effect(widget)
+        current_animation = getattr(widget, "_content_animation", None)
+        if current_animation is not None:
+            current_animation.stop()
+
+        fade_out = QPropertyAnimation(effect, b"opacity", self)
+        fade_out.setDuration(ANIMATION_FAST_MS)
+        fade_out.setStartValue(float(effect.opacity()))
+        fade_out.setEndValue(0.16)
+        fade_out.setEasingCurve(QEasingCurve.OutCubic)
+
+        fade_in = QPropertyAnimation(effect, b"opacity", self)
+        fade_in.setDuration(ANIMATION_MEDIUM_MS)
+        fade_in.setStartValue(0.16)
+        fade_in.setEndValue(1.0)
+        fade_in.setEasingCurve(QEasingCurve.InOutCubic)
+
+        group = QSequentialAnimationGroup(self)
+        group.addAnimation(fade_out)
+        group.addAnimation(fade_in)
+        fade_out.finished.connect(apply_content)
+        widget._content_animation = group
+
+        def _cleanup():
+            if getattr(widget, "_content_animation", None) is group:
+                widget._content_animation = None
+            effect.setOpacity(1.0)
+
+        group.finished.connect(_cleanup)
+        group.start()
+
+    def _set_progress_value(self, value: float, animate: bool):
+        clamped = max(0, min(100, int(round(value))))
+        if self._progress_animation is not None:
+            self._progress_animation.stop()
+            self._progress_animation = None
+        if not animate:
+            self.progress_bar.setValue(clamped)
+            return
+
+        animation = QPropertyAnimation(self.progress_bar, b"value", self)
+        animation.setDuration(ANIMATION_MEDIUM_MS)
+        animation.setStartValue(self.progress_bar.value())
+        animation.setEndValue(clamped)
+        animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self._progress_animation = animation
+
+        def _cleanup():
+            if self._progress_animation is animation:
+                self._progress_animation = None
+
+        animation.finished.connect(_cleanup)
+        animation.start()
+
+    def _register_animated_buttons(self):
+        for button in (
+            self.generate_mesh_button,
+            self.run_button,
+            self.stop_button,
+            self.scan_add_button,
+            self.scan_remove_button,
+            self.scan_reset_button,
+            self.open_paraview_button,
+            self.export_results_button,
+        ):
+            button.installEventFilter(self)
+
+    def _section_content_widgets(self, binding):
+        content_widgets = []
+        for field_key in binding["field_keys"]:
+            field_binding = self.field_bindings[field_key]
+            widget = field_binding["widget"]
+            label_widget = field_binding["form"].labelForField(widget)
+            content_widgets.append((field_key, label_widget, widget))
+        return content_widgets
+
+    def _set_section_title(self, binding):
+        prefix = "▾" if binding["expanded"] else "▸"
+        binding["section"].setTitle(f"{prefix} {binding['title']}")
+
+    def _set_section_content_visibility(self, binding, expanded: bool):
+        case_id = self.current_case
+        for field_key, label_widget, widget in self._section_content_widgets(binding):
+            visible = expanded and self._field_is_applicable(field_key, case_id)
+            widget.setVisible(visible)
+            if label_widget is not None:
+                label_widget.setVisible(visible)
+
+    def _set_section_expanded_state(self, binding, expanded: bool, animate: bool):
+        section = binding["section"]
+        current_animation = self._section_animations.get(section)
+        if current_animation is not None:
+            current_animation.stop()
+
+        binding["expanded"] = expanded
+        section.setProperty("expanded", expanded)
+        self._set_section_title(binding)
+        self.style().unpolish(section)
+        self.style().polish(section)
+
+        if expanded:
+            self._set_section_content_visibility(binding, expanded=True)
+
+        current_height = max(section.height(), binding["collapsed_height"])
+        if expanded:
+            section.setMaximumHeight(16777215)
+            target_height = max(section.sizeHint().height(), current_height)
+        else:
+            target_height = binding["collapsed_height"]
+
+        if not animate:
+            section.setMaximumHeight(16777215 if expanded else binding["collapsed_height"])
+            if not expanded:
+                self._set_section_content_visibility(binding, expanded=False)
+            return
+
+        height_animation = QPropertyAnimation(section, b"maximumHeight", self)
+        height_animation.setDuration(ANIMATION_MEDIUM_MS)
+        height_animation.setStartValue(current_height)
+        height_animation.setEndValue(target_height)
+        height_animation.setEasingCurve(QEasingCurve.OutCubic if expanded else QEasingCurve.InOutCubic)
+        self._section_animations[section] = height_animation
+
+        def _cleanup():
+            if self._section_animations.get(section) is height_animation:
+                self._section_animations.pop(section, None)
+            section.setMaximumHeight(16777215 if expanded else binding["collapsed_height"])
+            if not expanded:
+                self._set_section_content_visibility(binding, expanded=False)
+
+        height_animation.finished.connect(_cleanup)
+        height_animation.start()
+
+    def _toggle_section(self, section: QGroupBox, expanded: bool, animate: bool = True):
+        binding = self._section_bindings_by_widget.get(section)
+        if binding is None or not section.isVisible():
+            return
+        self._set_section_expanded_state(binding, expanded=expanded, animate=animate)
+
+    def _button_target_geometry(self, button: QPushButton, hovered: bool):
+        rest_geometry = self._button_rest_geometries.get(button, button.geometry())
+        return QRect(rest_geometry.x(), rest_geometry.y() - 3, rest_geometry.width(), rest_geometry.height()) if hovered else QRect(rest_geometry)
+
+    def _animate_button_hover(self, button: QPushButton, hovered: bool):
+        if not button.isEnabled() or not button.isVisible():
+            return
+        current_animation = self._button_hover_animations.get(button)
+        if current_animation is not None:
+            current_animation.stop()
+        if hovered or button not in self._button_rest_geometries:
+            self._button_rest_geometries[button] = QRect(button.geometry())
+
+        target = self._button_target_geometry(button, hovered)
+        button.setProperty("floating", hovered)
+        self.style().unpolish(button)
+        self.style().polish(button)
+
+        animation = QPropertyAnimation(button, b"geometry", self)
+        animation.setDuration(ANIMATION_FAST_MS if hovered else ANIMATION_MEDIUM_MS)
+        animation.setStartValue(button.geometry())
+        animation.setEndValue(target)
+        animation.setEasingCurve(QEasingCurve.OutCubic if hovered else QEasingCurve.InOutCubic)
+        self._button_hover_animations[button] = animation
+
+        def _cleanup():
+            if self._button_hover_animations.get(button) is animation:
+                self._button_hover_animations.pop(button, None)
+
+        animation.finished.connect(_cleanup)
+        animation.start()
+
+    def _visible_reveal_sections(self):
+        sections = []
+        for binding in self.section_bindings:
+            section = binding["section"]
+            if section.isVisible() and binding["expanded"]:
+                sections.append(section)
+        for section in (self.run_profile_box, self.scan_editor_box):
+            if section.isVisible():
+                sections.append(section)
+        return sections
+
+    def _pulse_status_card(self, label: QLabel):
+        self._animate_widget_opacity(label, start=0.34, end=1.0, duration=ANIMATION_SLOW_MS)
+
+    def _animations_enabled(self) -> bool:
+        app = QApplication.instance()
+        return bool(app is not None and app.platformName() != "offscreen" and self.isVisible())
+
+    def _position_toast(self):
+        if not hasattr(self, "toast_label"):
+            return
+        self.toast_label.adjustSize()
+        width = min(max(self.toast_label.sizeHint().width(), 220), 360)
+        self.toast_label.resize(width, self.toast_label.sizeHint().height())
+        margin = 22
+        x_pos = margin
+        y_pos = self.centralWidget().height() - self.toast_label.height() - margin
+        self.toast_label.move(x_pos, max(margin, y_pos))
+
+    def _show_toast(self, text: str, tone: str):
+        self._toast_hide_timer.stop()
+        self.toast_label.setProperty("tone", tone)
+        self.style().unpolish(self.toast_label)
+        self.style().polish(self.toast_label)
+        self.toast_label.setText(text)
+        self._position_toast()
+        self.toast_label.raise_()
+        self.toast_label.show()
+
+        current_animation = self._toast_animation
+        if current_animation is not None:
+            current_animation.stop()
+
+        effect = self._ensure_opacity_effect(self.toast_label)
+        end_rect = QRect(self.toast_label.geometry())
+        start_rect = QRect(end_rect.x(), end_rect.y() - 14, end_rect.width(), end_rect.height())
+        self.toast_label.setGeometry(start_rect)
+        effect.setOpacity(0.0)
+
+        geometry_animation = QPropertyAnimation(self.toast_label, b"geometry", self)
+        geometry_animation.setDuration(ANIMATION_MEDIUM_MS)
+        geometry_animation.setStartValue(start_rect)
+        geometry_animation.setEndValue(end_rect)
+        geometry_animation.setEasingCurve(QEasingCurve.OutCubic)
+
+        opacity_animation = QPropertyAnimation(effect, b"opacity", self)
+        opacity_animation.setDuration(ANIMATION_MEDIUM_MS)
+        opacity_animation.setStartValue(0.0)
+        opacity_animation.setEndValue(1.0)
+        opacity_animation.setEasingCurve(QEasingCurve.InOutCubic)
+
+        group = QParallelAnimationGroup(self)
+        group.addAnimation(geometry_animation)
+        group.addAnimation(opacity_animation)
+        self._toast_animation = group
+        group.start()
+        self._toast_hide_timer.start(ANIMATION_TOAST_STAY_MS)
+
+    def _hide_toast(self):
+        if not hasattr(self, "toast_label") or not self.toast_label.isVisible():
+            return
+        current_animation = self._toast_animation
+        if current_animation is not None:
+            current_animation.stop()
+
+        effect = self._ensure_opacity_effect(self.toast_label)
+        start_rect = QRect(self.toast_label.geometry())
+        end_rect = QRect(start_rect.x(), start_rect.y() - 12, start_rect.width(), start_rect.height())
+
+        geometry_animation = QPropertyAnimation(self.toast_label, b"geometry", self)
+        geometry_animation.setDuration(ANIMATION_FAST_MS)
+        geometry_animation.setStartValue(start_rect)
+        geometry_animation.setEndValue(end_rect)
+        geometry_animation.setEasingCurve(QEasingCurve.InCubic)
+
+        opacity_animation = QPropertyAnimation(effect, b"opacity", self)
+        opacity_animation.setDuration(ANIMATION_FAST_MS)
+        opacity_animation.setStartValue(float(effect.opacity()))
+        opacity_animation.setEndValue(0.0)
+        opacity_animation.setEasingCurve(QEasingCurve.InCubic)
+
+        group = QParallelAnimationGroup(self)
+        group.addAnimation(geometry_animation)
+        group.addAnimation(opacity_animation)
+        self._toast_animation = group
+
+        def _cleanup():
+            self.toast_label.hide()
+            effect.setOpacity(1.0)
+
+        group.finished.connect(_cleanup)
+        group.start()
+
+    def _show_run_feedback(self, run_mode: str, success: bool, was_stopped: bool, message: str):
+        if success and not was_stopped:
+            tone = "success"
+            toast_text = f"{'Mesh' if run_mode == 'mesh' else 'Compute'} stage completed."
+        elif was_stopped:
+            tone = "warning"
+            toast_text = f"{'Mesh' if run_mode == 'mesh' else 'Compute'} stage stopped."
+        else:
+            tone = "error"
+            toast_text = message
+
+        self._show_toast(toast_text, tone)
+        target_label = self.mesh_status_label if run_mode == "mesh" else self.compute_status_label
+        self._pulse_status_card(target_label)
+
     def _set_layout_direction(self, layout, horizontal: bool):
         layout.setDirection(QBoxLayout.LeftToRight if horizontal else QBoxLayout.TopToBottom)
 
@@ -1239,7 +1927,7 @@ class MainWindow(QMainWindow):
         self.mesh_left_scroll.setMinimumWidth(0 if stacked_main else 360)
         self.compute_left_scroll.setMinimumWidth(0 if stacked_main else 380)
 
-        preview_min_height = 300 if stacked_main else 420
+        preview_min_height = 320 if stacked_main else 440
         self.mesh_preview_label.setMinimumHeight(preview_min_height)
         self.damage_label.setMinimumHeight(preview_min_height)
         self.postprocess_label.setMinimumHeight(preview_min_height)
@@ -1752,10 +2440,10 @@ class MainWindow(QMainWindow):
             manifest.snapshot_paths or manifest.curve_csv_paths or manifest.vtk_paths or manifest.exported_visual_paths
         )
         if case.mesh_stage_enabled:
-            state["mesh_status"] = "Mesh Ready." if state["mesh_ready"] else "Mesh Not Generated."
+            state["mesh_status"] = "Mesh ready." if state["mesh_ready"] else "Mesh not generated."
         else:
-            state["mesh_status"] = "Mesh Generated Inside Benchmark Run." if state["compute_completed"] else self._default_mesh_status(case)
-        state["compute_status"] = "Latest Results Loaded From Manifest." if state["compute_completed"] else self._default_compute_status(case)
+            state["mesh_status"] = "Mesh generated inside benchmark run." if state["compute_completed"] else self._default_mesh_status(case)
+        state["compute_status"] = "Latest results loaded from manifest." if state["compute_completed"] else self._default_compute_status(case)
         state["curve_x"], state["curve_y"] = self._load_curve_history(manifest, case)
         state["history_selection"]["Mesh"] = str(state["mesh_preview_path"]) if state["mesh_preview_path"] else None
         state["history_selection"]["Damage"] = str(state["latest_damage_path"]) if state["latest_damage_path"] else None
@@ -1933,7 +2621,7 @@ class MainWindow(QMainWindow):
     def _field_is_applicable(self, field_key: str, case_id: str) -> bool:
         return field_key in CASE_DEFINITIONS[case_id].editable_field_keys
 
-    def _sync_visible_fields(self):
+    def _sync_visible_fields(self, animate_sections: bool = False):
         case = self._current_case_def()
         visible_mesh_fields = 0
         visible_compute_fields = 0
@@ -1942,14 +2630,16 @@ class MainWindow(QMainWindow):
         for field_key, binding in self.field_bindings.items():
             widget = binding["widget"]
             form = binding["form"]
-            section = binding["section"]
+            section_binding = binding["section"]
+            section = section_binding["section"]
             label_widget = form.labelForField(widget)
             visible = self._field_is_applicable(field_key, case.case_id)
-            widget.setVisible(visible)
+            expanded = section_binding["expanded"]
+            widget.setVisible(visible and expanded)
             if label_widget is not None:
-                label_widget.setVisible(visible)
+                label_widget.setVisible(visible and expanded)
             if visible:
-                parent_title = section.title()
+                parent_title = section_binding["title"]
                 if parent_title in {"Geometry", "Mesh"}:
                     visible_mesh_fields += 1
                 else:
@@ -1959,6 +2649,14 @@ class MainWindow(QMainWindow):
             section = section_binding["section"]
             section_visible = any(self._field_is_applicable(key, case.case_id) for key in section_binding["field_keys"])
             section.setVisible(section_visible)
+            if section_visible:
+                self._set_section_title(section_binding)
+                if section_binding["expanded"]:
+                    section.setMaximumHeight(16777215)
+                    self._set_section_content_visibility(section_binding, expanded=True)
+                else:
+                    section.setMaximumHeight(section_binding["collapsed_height"])
+                    self._set_section_content_visibility(section_binding, expanded=False)
 
         self.mesh_empty_label.setVisible(visible_mesh_fields == 0)
         self.compute_empty_label.setVisible(visible_compute_fields == 0 and not scan_visible)
@@ -1990,7 +2688,7 @@ class MainWindow(QMainWindow):
                 self.scan_table.setItem(row_index, column_index, item)
         self._syncing_scan_table = False
         self.scan_editor_intro_label.setText(
-            "Edit The Scan List For This Benchmark." if case.scan_editor_kind else "This Benchmark Does Not Use A Scan List."
+            "Edit the scan list for this benchmark." if case.scan_editor_kind else "This benchmark does not use a scan list."
         )
         self._update_scan_editor_enabled_state()
 
@@ -2004,7 +2702,7 @@ class MainWindow(QMainWindow):
         self.scan_reset_button.setEnabled(enabled)
         self.scan_remove_button.setEnabled(enabled and self.scan_table.currentRow() >= 0)
 
-    def _apply_case_params_to_inputs(self, case_id: str):
+    def _apply_case_params_to_inputs(self, case_id: str, animate_sections: bool = False):
         self._syncing_inputs = True
         params = self.case_states[case_id]["params"]
         for key, widget in self.inputs.items():
@@ -2024,15 +2722,15 @@ class MainWindow(QMainWindow):
             )
 
         self.mesh_intro_label.setText(
-            "Generate Mesh First, Then Run Compute." if case.mesh_stage_enabled else "This Benchmark Creates Its Mesh During Compute."
+            "Generate mesh first, then run compute." if case.mesh_stage_enabled else "This benchmark creates its mesh during compute."
         )
         self.compute_intro_label.setText(
-            "Protocol Cases Stream Solver Updates In Real Time." if case.backend_mode == "protocol_julia" else "Batch Benchmark Runs Stream Logs And Refresh Results After Completion."
+            "Protocol cases stream solver updates in real time." if case.backend_mode == "protocol_julia" else "Batch benchmark runs stream logs and refresh results after completion."
         )
 
         self.mesh_status_label.setText(state["mesh_status"])
         self.compute_status_label.setText(state["compute_status"])
-        self.progress_bar.setValue(max(0, min(100, int(round(state["progress"])))))
+        self._set_progress_value(state["progress"], animate=False)
         self.curve_canvas.set_curve_kind(case.curve_kind)
         self.curve_canvas.update_curve(state["curve_x"], state["curve_y"])
         self.log_box.setPlainText("\n".join(state["log_lines"]))
@@ -2041,7 +2739,7 @@ class MainWindow(QMainWindow):
         self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder())
         self.vtk_label.setText(f"Latest VTK: {state['latest_vtk_path'] or 'None'}")
         self._sync_postprocess_view_combo(case.case_id)
-        self.refresh_postprocess_view(prefer_latest=False)
+        self.refresh_postprocess_view(prefer_latest=False, animate=False)
         self._sync_run_profile_ui(case.case_id)
         self._sync_scan_editor(case.case_id)
         self._sync_visible_fields()
@@ -2101,22 +2799,28 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(self.mesh_tab_index if run_mode == "mesh" else self.compute_tab_index)
 
     def _mesh_placeholder(self):
-        return "Generate Mesh To View The Mesh Preview."
+        return "Generate mesh to view the mesh preview."
 
     def _damage_placeholder(self):
-        return "Run Compute To View The Damage Contour."
+        return "Run compute to view the damage contour."
 
     def _displacement_placeholder(self):
-        return "Run Compute To View The Displacement Contour."
+        return "Run compute to view the displacement contour."
 
     def _visual_placeholder(self):
-        return "Exported Visual Panels Will Appear Here."
+        return "Exported visual panels will appear here."
 
-    def _clear_label_image(self, label: QLabel, placeholder: str):
+    def _clear_label_image(self, label: QWidget, placeholder: str):
+        if isinstance(label, ImagePreviewWidget):
+            label.clear_image(placeholder)
+            return
         label.setPixmap(QPixmap())
         label.setText(placeholder)
 
-    def _set_label_image(self, label: QLabel, image_path: Path | None, placeholder: str):
+    def _render_label_image(self, label: QWidget, image_path: Path | None, placeholder: str):
+        if isinstance(label, ImagePreviewWidget):
+            label.set_image(image_path, placeholder)
+            return
         if image_path is None or not image_path.exists():
             self._clear_label_image(label, placeholder)
             return
@@ -2127,6 +2831,42 @@ class MainWindow(QMainWindow):
         scaled = pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         label.setPixmap(scaled)
         label.setText("")
+
+    def _set_label_image(self, label: QWidget, image_path: Path | None, placeholder: str, animate: bool = True):
+        apply_content = lambda: self._render_label_image(label, image_path, placeholder)
+        if not animate or not self._animations_enabled():
+            apply_content()
+            effect = self._ensure_opacity_effect(label)
+            effect.setOpacity(1.0)
+            return
+        self._animate_content_swap(label, apply_content)
+
+    def _render_postprocess_view(self, view_name: str, selected_path: str | None):
+        if view_name == "Curve":
+            self.postprocess_stack.setCurrentWidget(self.postprocess_curve_canvas)
+            self.postprocess_curve_canvas.set_curve_kind(self._current_case_def().curve_kind)
+            if selected_path:
+                x_values, y_values = self._load_curve_csv(Path(selected_path), self._current_case_def())
+            else:
+                x_values, y_values = [], []
+            self.postprocess_curve_canvas.update_curve(x_values, y_values)
+        elif view_name == "Summary Table":
+            self.postprocess_stack.setCurrentWidget(self.postprocess_table)
+            if selected_path:
+                self._populate_summary_table(Path(selected_path))
+            else:
+                self._populate_summary_table(None)
+        elif view_name == "Comparison Curve":
+            self.postprocess_stack.setCurrentWidget(self.postprocess_curve_canvas)
+            comparison_curve_kind = self._current_case_def().comparison_curve_kind or self._current_case_def().curve_kind
+            self.postprocess_curve_canvas.set_curve_kind(comparison_curve_kind)
+            self.postprocess_curve_canvas.update_curves(self._comparison_curve_series(self.current_case))
+        else:
+            image_path, placeholder = self._visible_image_path(view_name)
+            self.postprocess_stack.setCurrentWidget(self.postprocess_label)
+            self._set_label_image(self.postprocess_label, image_path, placeholder, animate=False)
+        self.postprocess_detail_label.setText(self._postprocess_detail_text(view_name, selected_path))
+        self._update_paraview_button()
 
     def _visible_image_path(self, view_name: str):
         state = self._current_state()
@@ -2141,29 +2881,29 @@ class MainWindow(QMainWindow):
         if view_name == "Visual Export":
             path = self.history_combo.currentData()
             return (Path(path), self._visual_placeholder()) if path else (None, self._visual_placeholder())
-        return None, "Post-Process Output Will Appear Here."
+        return None, "Post-process output will appear here."
 
     def _postprocess_detail_text(self, view_name: str, selected_path: str | None):
         if view_name == "Summary Table":
-            return f"Summary Table: {selected_path}" if selected_path else "Scan Summary Table Will Appear Here."
+            return f"Summary Table: {selected_path}" if selected_path else "Scan summary table will appear here."
         if view_name == "Comparison Curve":
             series = self._comparison_curve_series(self.current_case)
             if series:
                 labels = ", ".join(item["label"] for item in series)
                 return f"Comparison Curve: {len(series)} Series [{labels}]"
-            return "Comparison Curves Will Appear Here."
+            return "Comparison curves will appear here."
         if selected_path:
             return f"{view_name}: {selected_path}"
         placeholders = {
             "Mesh": self._mesh_placeholder(),
             "Damage": self._damage_placeholder(),
             "Displacement": self._displacement_placeholder(),
-            "Curve": "Curve Data Will Appear Here.",
-            "Summary Table": "Scan Summary Table Will Appear Here.",
-            "Comparison Curve": "Comparison Curves Will Appear Here.",
+            "Curve": "Curve data will appear here.",
+            "Summary Table": "Scan summary table will appear here.",
+            "Comparison Curve": "Comparison curves will appear here.",
             "Visual Export": self._visual_placeholder(),
         }
-        return placeholders.get(view_name, "Post-Process Output Will Appear Here.")
+        return placeholders.get(view_name, "Post-process output will appear here.")
 
     def _history_paths_for_case(self, case_id: str, view_name: str):
         state = self.case_states[case_id]
@@ -2315,14 +3055,14 @@ class MainWindow(QMainWindow):
     def on_postprocess_view_changed(self, _view_name: str):
         if self._syncing_postprocess_view:
             return
-        self.refresh_postprocess_view(prefer_latest=False)
+        self.refresh_postprocess_view(prefer_latest=False, animate=True)
 
     def on_history_changed(self, _index: int):
         if self._syncing_history:
             return
         view_name = self.postprocess_view_combo.currentText()
         self._current_state()["history_selection"][view_name] = self.history_combo.currentData()
-        self.refresh_postprocess_view(prefer_latest=False)
+        self.refresh_postprocess_view(prefer_latest=False, animate=True)
 
     def append_log(self, text: str):
         state = self._active_state()
@@ -2348,7 +3088,7 @@ class MainWindow(QMainWindow):
         state = self._active_state()
         state["progress"] = value
         if self.active_case_id == self.current_case:
-            self.progress_bar.setValue(max(0, min(100, int(round(value)))))
+            self._set_progress_value(value, animate=True)
 
     def update_step(self, x_value: float, y_value: float, marker_value: float, step: int):
         state = self._active_state()
@@ -2375,7 +3115,7 @@ class MainWindow(QMainWindow):
             if self.active_case_id == self.current_case:
                 self._set_label_image(self.damage_label, path, self._damage_placeholder())
         if self.active_case_id == self.current_case:
-            self.refresh_postprocess_view(prefer_latest=True)
+            self.refresh_postprocess_view(prefer_latest=True, animate=self.tabs.currentIndex() == self.post_tab_index)
 
     def update_vtk_path(self, vtk_path: str):
         state = self._active_state()
@@ -2392,7 +3132,7 @@ class MainWindow(QMainWindow):
         state["latest_displacement_path"] = path
         state["history_selection"]["Displacement"] = str(path)
         if self.active_case_id == self.current_case:
-            self.refresh_postprocess_view(prefer_latest=True)
+            self.refresh_postprocess_view(prefer_latest=True, animate=self.tabs.currentIndex() == self.post_tab_index)
 
     def collect_params(self):
         params = {}
@@ -2535,10 +3275,10 @@ class MainWindow(QMainWindow):
     def start_mesh_generation(self):
         case = self._current_case_def()
         if not case.is_ready:
-            QMessageBox.warning(self, "Planned Case", "This Benchmark Is Listed But Not Integrated Yet.")
+            QMessageBox.warning(self, "Planned Case", "This benchmark is listed but not integrated yet.")
             return
         if not case.mesh_stage_enabled:
-            QMessageBox.warning(self, "Mesh Unavailable", "This Benchmark Builds Its Mesh During The Compute Stage.")
+            QMessageBox.warning(self, "Mesh Unavailable", "This benchmark builds its mesh during the compute stage.")
             return
         try:
             params = self.collect_params()
@@ -2551,19 +3291,19 @@ class MainWindow(QMainWindow):
 
         self._invalidate_case_mesh_state(self.current_case, clear_log=True)
         self._apply_case_state_to_ui()
-        self._current_state()["mesh_status"] = f"Generating {case.display_name} Mesh..."
+        self._current_state()["mesh_status"] = f"Generating {case.display_name} mesh..."
         self.mesh_status_label.setText(self._current_state()["mesh_status"])
-        self._clear_label_image(self.mesh_preview_label, "Waiting For Mesh Preview...")
+        self._clear_label_image(self.mesh_preview_label, "Waiting for mesh preview...")
         self._start_worker("mesh", effective_params, case, run_profile, scan_cases)
 
     def start_run(self):
         case = self._current_case_def()
         state = self._current_state()
         if not case.is_ready:
-            QMessageBox.warning(self, "Planned Case", "This Benchmark Is Listed But Not Integrated Yet.")
+            QMessageBox.warning(self, "Planned Case", "This benchmark is listed but not integrated yet.")
             return
         if case.mesh_stage_enabled and (not state["mesh_ready"] or state["mesh_artifact_path"] is None):
-            QMessageBox.warning(self, "Mesh Required", "Generate Mesh First Before Running Compute.")
+            QMessageBox.warning(self, "Mesh Required", "Generate mesh first before running compute.")
             return
         try:
             params = self.collect_params()
@@ -2577,7 +3317,7 @@ class MainWindow(QMainWindow):
         self._clear_case_compute_outputs(self.current_case, clear_log=True)
         self._apply_case_state_to_ui()
         state = self._current_state()
-        state["compute_status"] = f"Starting {case.display_name} Compute Stage..."
+        state["compute_status"] = f"Starting {case.display_name} compute stage..."
         self.compute_status_label.setText(state["compute_status"])
         self._start_worker("compute", effective_params, case, run_profile, scan_cases)
 
@@ -2587,43 +3327,24 @@ class MainWindow(QMainWindow):
         self.worker.stop()
         self.stop_button.setEnabled(False)
 
-    def refresh_postprocess_view(self, prefer_latest: bool):
+    def refresh_postprocess_view(self, prefer_latest: bool, animate: bool = True):
         self._refresh_history_combo(prefer_latest=prefer_latest)
         view_name = self.postprocess_view_combo.currentText()
         selected_path = self.history_combo.currentData()
-        if view_name == "Curve":
-            self.postprocess_stack.setCurrentWidget(self.postprocess_curve_canvas)
-            self.postprocess_curve_canvas.set_curve_kind(self._current_case_def().curve_kind)
-            if selected_path:
-                x_values, y_values = self._load_curve_csv(Path(selected_path), self._current_case_def())
-            else:
-                x_values, y_values = [], []
-            self.postprocess_curve_canvas.update_curve(x_values, y_values)
-        elif view_name == "Summary Table":
-            self.postprocess_stack.setCurrentWidget(self.postprocess_table)
-            if selected_path:
-                self._populate_summary_table(Path(selected_path))
-            else:
-                self._populate_summary_table(None)
-        elif view_name == "Comparison Curve":
-            self.postprocess_stack.setCurrentWidget(self.postprocess_curve_canvas)
-            comparison_curve_kind = self._current_case_def().comparison_curve_kind or self._current_case_def().curve_kind
-            self.postprocess_curve_canvas.set_curve_kind(comparison_curve_kind)
-            self.postprocess_curve_canvas.update_curves(self._comparison_curve_series(self.current_case))
+        apply_content = lambda: self._render_postprocess_view(view_name, selected_path)
+        if animate and self._animations_enabled():
+            self._animate_content_swap(self.postprocess_stack, apply_content)
+            self._animate_widget_opacity(self.postprocess_detail_label, start=0.36, end=1.0, duration=ANIMATION_MEDIUM_MS)
         else:
-            image_path, placeholder = self._visible_image_path(view_name)
-            self.postprocess_stack.setCurrentWidget(self.postprocess_label)
-            self._set_label_image(self.postprocess_label, image_path, placeholder)
-        self.postprocess_detail_label.setText(self._postprocess_detail_text(view_name, selected_path))
-        self._update_paraview_button()
+            apply_content()
 
     def open_in_paraview(self):
         latest_vtk = self._current_state()["latest_vtk_path"]
         if not self.paraview_executable:
-            QMessageBox.warning(self, "ParaView Unavailable", "The `paraview` Executable Was Not Found In PATH.")
+            QMessageBox.warning(self, "ParaView Unavailable", "The `paraview` executable was not found in PATH.")
             return
         if not latest_vtk or not Path(latest_vtk).exists():
-            QMessageBox.warning(self, "VTK Unavailable", "No VTK File Is Available For The Current Case.")
+            QMessageBox.warning(self, "VTK Unavailable", "No VTK file is available for the current case.")
             return
         try:
             subprocess.Popen([self.paraview_executable, latest_vtk], cwd=str(REPO_ROOT))
@@ -2634,7 +3355,7 @@ class MainWindow(QMainWindow):
         state = self._current_state()
         manifest = state["manifest"]
         if manifest is None:
-            QMessageBox.warning(self, "No Results", "No Result Files Are Available To Export For The Current Case.")
+            QMessageBox.warning(self, "No Results", "No result files are available to export for the current case.")
             return
 
         target_dir = QFileDialog.getExistingDirectory(self, "Select Output Folder", str(REPO_ROOT))
@@ -2653,7 +3374,7 @@ class MainWindow(QMainWindow):
                 for path in visual_paths:
                     if path.exists():
                         shutil.copy2(path, export_root / path.name)
-            QMessageBox.information(self, "Results Saved", f"Saved Run Bundle To {destination}.")
+            QMessageBox.information(self, "Results Saved", f"Saved run bundle to {destination}.")
             return
 
         copied_count = 0
@@ -2665,7 +3386,7 @@ class MainWindow(QMainWindow):
             shutil.copy2(state["manifest_path"], target_path / Path(state["manifest_path"]).name)
             copied_count += 1
 
-        QMessageBox.information(self, "Results Saved", f"Saved {copied_count} Payload(s) To {target_path}.")
+        QMessageBox.information(self, "Results Saved", f"Saved {copied_count} payload(s) to {target_path}.")
 
     def _build_manifest_after_run(self, case):
         perform_export = bool(case.visual_exporter)
@@ -2688,7 +3409,7 @@ class MainWindow(QMainWindow):
         if STOP_FLAG.exists():
             STOP_FLAG.unlink()
 
-        was_stopped = message == "Stopped By User."
+        was_stopped = message == "Stopped by user."
         case = CASE_DEFINITIONS[case_id]
         state = self.case_states[case_id]
 
@@ -2697,7 +3418,7 @@ class MainWindow(QMainWindow):
             if manifest is not None and manifest_path is not None:
                 self._apply_manifest_to_state(case_id, manifest_path, manifest)
             if run_mode == "mesh":
-                state["mesh_status"] = "Mesh Ready."
+                state["mesh_status"] = "Mesh ready."
             else:
                 state["compute_completed"] = True
                 state["compute_status"] = message
@@ -2716,17 +3437,50 @@ class MainWindow(QMainWindow):
         if self.current_case == case_id:
             self._apply_case_state_to_ui()
             self._set_idle_state()
+            self._show_run_feedback(run_mode, success, was_stopped, message)
 
         if not success:
             QMessageBox.warning(self, "Run Finished", message)
 
+    def eventFilter(self, watched, event):
+        if isinstance(watched, QPushButton):
+            if event.type() == QEvent.Enter:
+                self._animate_button_hover(watched, hovered=True)
+            elif event.type() == QEvent.Leave:
+                self._animate_button_hover(watched, hovered=False)
+            elif event.type() in {QEvent.EnabledChange, QEvent.Hide}:
+                watched.setProperty("floating", False)
+                self.style().unpolish(watched)
+                self.style().polish(watched)
+                self._button_rest_geometries[watched] = QRect(watched.geometry())
+        elif isinstance(watched, QGroupBox) and watched.property("collapsible_section"):
+            if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and event.pos().y() <= 34:
+                binding = self._section_bindings_by_widget.get(watched)
+                if binding is not None:
+                    self._toggle_section(watched, expanded=not binding["expanded"], animate=True)
+                    return True
+        return super().eventFilter(watched, event)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._apply_responsive_layout()
+        self._position_toast()
+        for button in (
+            self.generate_mesh_button,
+            self.run_button,
+            self.stop_button,
+            self.scan_add_button,
+            self.scan_remove_button,
+            self.scan_reset_button,
+            self.open_paraview_button,
+            self.export_results_button,
+        ):
+            if not button.property("floating"):
+                self._button_rest_geometries[button] = QRect(button.geometry())
         state = self._current_state()
-        self._set_label_image(self.mesh_preview_label, state["mesh_preview_path"], self._mesh_placeholder())
-        self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder())
-        self.refresh_postprocess_view(prefer_latest=False)
+        self._set_label_image(self.mesh_preview_label, state["mesh_preview_path"], self._mesh_placeholder(), animate=False)
+        self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder(), animate=False)
+        self.refresh_postprocess_view(prefer_latest=False, animate=False)
 
     def closeEvent(self, event):
         if self.worker is not None and self.worker.isRunning():
@@ -2736,6 +3490,19 @@ class MainWindow(QMainWindow):
         purge_transient_gui_results()
         super().closeEvent(event)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._entrance_animation_started:
+            return
+        self._entrance_animation_started = True
+        self._position_toast()
+        self._animate_widget_opacity(self.case_status_badge, start=0.0, end=1.0, duration=ANIMATION_MEDIUM_MS)
+
+    def on_tab_changed(self, index: int):
+        page = self.tabs.widget(index)
+        if page is not None and self.isVisible():
+            self._animate_widget_opacity(self.case_status_badge, start=0.52, end=1.0, duration=ANIMATION_FAST_MS)
+
 
 def main():
     purge_transient_gui_results()
@@ -2743,7 +3510,9 @@ def main():
     MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     app = QApplication(sys.argv)
-    app.setFont(QFont(APP_FONT_FAMILY, APP_FONT_SIZE))
+    app_font = QFont(resolve_qt_serif_font_family(), APP_FONT_SIZE)
+    app_font.setStyleHint(QFont.Serif)
+    app.setFont(app_font)
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())

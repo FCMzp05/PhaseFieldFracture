@@ -13,7 +13,7 @@ ENV["GKSwstype"] = "100"
 using Plots
 gr(show=false)
 
-const PLOT_FONT_FAMILY = "Times New Roman"
+const PLOT_FONT_FAMILY = "Times"
 default(
     fontfamily=PLOT_FONT_FAMILY,
     titlefontfamily=PLOT_FONT_FAMILY,

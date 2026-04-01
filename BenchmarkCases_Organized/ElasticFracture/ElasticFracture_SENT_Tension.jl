@@ -49,7 +49,7 @@ using Plots
 gr(show=false)
 using DelimitedFiles
 
-const PLOT_FONT_FAMILY = "Times New Roman"
+const PLOT_FONT_FAMILY = "Times"
 default(
     fontfamily=PLOT_FONT_FAMILY,
     titlefontfamily=PLOT_FONT_FAMILY,

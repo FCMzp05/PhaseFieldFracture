@@ -32,7 +32,7 @@
   - `Flat grooved scan`
   - `Double-notched monotonic`
 - 已接入 `visual` 导出链路，当前 `SENT / SENS / Flat grooved` 可自动生成并显示导出图
-- 已统一绘图字体为 `Times New Roman`，并将刻度方向收敛为朝内
+- 已将 GUI、Matplotlib 内嵌图与 `BenchmarkCases_Organized` 的 Julia/GR 绘图字体收敛为同一套 serif 策略，优先使用 `Times`，消除 `Times New Roman.ttf` 告警，并将刻度方向收敛为朝内
 - 已将 GUI 主界面与内嵌曲线图字号整体上调 4 个字号
 - 已去掉 case 下拉中的 `[Ready]` 一类状态后缀，并收敛部分说明性命名
 - 已改为启动前清理旧 GUI 缓存，关闭窗口后自动删除未另存的运行结果，避免下次打开直接回显旧网格/快照
@@ -44,7 +44,15 @@
 - 已补 scan manifest 收集与 scan 结果视图的 headless 回归测试
 - 已统一主界面排版层级，补 header / card / badge / tab / form 的现代化样式
 - 已补窗口缩放下的响应式排版，窄宽度时主区自动上下堆叠，左侧参数区可滚动，操作按钮改为纵向排布
-- 已统一界面英文文案为 Title Case
+- 已统一界面英文文案风格：词组使用 Title Case，句子使用正常句式
+- 已补第一版轻量动效：窗口首屏淡入、Tab 切换淡入、预览图交叉淡入、进度条缓动刷新
+- 已补第二批交互动效：按钮 hover 微抬升、运行完成 toast 提示、case 切换时左侧参数分组轻微展开
+- 已将左侧参数分组改为可收放交互，并统一结果区图片 / 曲线 / 表格切换节奏
+- 已去掉 GUI 烟测中的 Matplotlib `tight_layout` 告警，收敛绘图区边距控制
+- 已收敛整窗级首屏淡入，避免部分环境下出现首屏空白风险
+- 已取消左侧表单自动批量 reveal，仅保留用户触发的分组收放动画，收敛左侧动画噪声
+- 已修复 GUI 下 `Generate Mesh` 的 Julia 子进程环境干扰问题，避免 `QApplication` 存在时卡在 mesh preview 生成
+- 已将顶部 case badge 收紧为紧凑胶囊，补 mesh / post-process 图片预览的缩放与上下滚动控件，并把完成 toast 调整到底部左侧，收敛 tab 与预览标题尺寸
 
 ### 部分完成
 
@@ -53,7 +61,7 @@
 - `SENT / SENS` 支持实时日志、进度、快照、VTK、曲线刷新；batch case 当前以日志流和结束后回填结果为主
 - 结果视图已按 case 动态切换 `Mesh / Damage / Displacement / Curve / Summary Table / Comparison Curve / Visual Export`
 - 界面已较明显区分页面标题、分组标题、状态信息与结果区，但仍未细化更小窗口下的控件密度
-- 英文文案已统一为 Title Case，但仍未系统梳理更细的术语风格
+- 英文文案风格已统一，但仍未系统梳理更细的术语风格
 
 ### 未完成
 
@@ -123,4 +131,12 @@ peng_pf_ui/
 - 继续细化更小窗口下的表单密度、字号与按钮尺寸
 - 继续统一术语风格与英文缩写显示规则
 - 评估 scan 类 benchmark 的表格筛选、列排序与导出
+- 继续补更细的交互动效，重点看按钮 hover、状态卡提示和运行完成反馈
+- 继续收敛动画细节，重点看 offscreen 绘制 warning、分组 reveal 节奏和完成提示层级
+- 继续打磨左侧分组默认展开策略和结果区切换细节，避免动画存在感过强
+- 继续区分“代码侧 warning”和“Qt offscreen 插件提示”，优先清理前者
+- 继续避免把动画挂在整页容器上，优先保留局部控件级过渡
+- 继续保持动画语义单一：自动状态刷新不抢用户手动交互
+- 继续评估是否要进一步细化 serif 字体回退顺序，减少不同 Linux 环境下的细微字形差异
 - 继续明确排除 `visual exporter` 新需求，先稳定主工作流、界面命名和缓存清理行为
+- 继续细化预览区交互，重点看超大图片下的横向滚动、快捷键缩放和控件占宽
