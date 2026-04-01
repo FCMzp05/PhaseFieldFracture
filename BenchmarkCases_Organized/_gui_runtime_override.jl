@@ -1,6 +1,6 @@
 module GuiRuntimeOverride
 
-export load_runtime_override, runtime_params, get_float, get_int, get_bool, get_string
+export load_runtime_override, runtime_params, runtime_output_dir, runtime_run_dir, runtime_run_id, get_float, get_int, get_bool, get_string
 
 
 mutable struct JsonParser
@@ -170,6 +170,21 @@ function runtime_params(payload)::Dict{String,Any}
     params = get(payload, "params", Dict{String,Any}())
     params isa Dict{String,Any} || return Dict{String,Any}()
     return params
+end
+
+
+function runtime_output_dir(payload::Dict{String,Any}, default::String)::String
+    return get_string(payload, "output_dir", default)
+end
+
+
+function runtime_run_dir(payload::Dict{String,Any}, default::String = "")::String
+    return get_string(payload, "run_dir", default)
+end
+
+
+function runtime_run_id(payload::Dict{String,Any}, default::String = "")::String
+    return get_string(payload, "run_id", default)
 end
 
 

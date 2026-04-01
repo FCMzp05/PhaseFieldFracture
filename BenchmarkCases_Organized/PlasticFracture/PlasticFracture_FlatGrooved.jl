@@ -110,7 +110,7 @@ const stagger_tol = 1e-6
 const h_fine = lc / 2
 const h_coarse = get_float(GUI_PARAMS, "h_coarse", 3.0)
 
-const BASE_OUTPUT_DIR = "results_PlasticFracture_FlatGrooved"
+const BASE_OUTPUT_DIR = runtime_output_dir(GUI_RUNTIME, "results_PlasticFracture_FlatGrooved")
 const HISO_SCAN = [0.1, 0.2, 0.5]
 const SNAPSHOT_DAMAGE_LEVELS = [0.20, 0.60, 0.90, 0.99]
 

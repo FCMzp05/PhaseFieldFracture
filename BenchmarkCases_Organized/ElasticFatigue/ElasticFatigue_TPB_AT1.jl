@@ -77,7 +77,7 @@ const REL_TOL = 1e-6
 const DAMAGE_TOL = 0.05
 const U_MAX = get_float(GUI_PARAMS, "U_MAX", 0.025 / 2)
 const R_CASES = [0.0]
-const OUTPUT_ROOT = "results_ElasticFatigue_TPB_AT1"
+const OUTPUT_ROOT = runtime_output_dir(GUI_RUNTIME, "results_ElasticFatigue_TPB_AT1")
 const SAVE_CYCLE_INTERVAL = get_int(GUI_PARAMS, "SAVE_CYCLE_INTERVAL", 40)
 
 # ============================================================================

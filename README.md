@@ -24,6 +24,8 @@
 - 已支持 `Mesh -> Compute -> Post-process` 工作流
 - 已支持参数编辑、日志显示、进度更新、曲线刷新、历史结果切换、最新 VTK 打开
 - 已接入 `RunManifest` 统一结果读取
+- 已统一为按运行隔离的时间戳结果目录：`gui/gui_results/runs/<case_id>/<run_id>/`
+- 每次运行都会归档 `runtime_params.json / manifest.json / native/`
 - 已接入 `visual` 导出链路，当前 `SENT / SENS / Fang` 可自动生成并显示导出图
 - 已统一绘图字体为 `Times New Roman`，并将刻度方向收敛为朝内
 - 已删除顶层历史 `Miehe2010_*` 原型脚本，`Elastic Fracture` 统一维护在 `gui/gui_solver.jl`
@@ -40,7 +42,6 @@
 - 自定义 `.msh` 网格导入
 - fatigue / plastic fatigue 专用 `visual exporter`
 - 视频导出（`mp4` / `gif`）
-- 统一时间戳结果目录
 - `Preview / Full / Debug` 运行模式切换
 - scan 型 case 的扫描列表编辑
 - 更完整的系统测试与长程 benchmark 验证
@@ -80,7 +81,7 @@ julia gui/gui_solver.jl gui/params_default.json
 ## 输入与输出
 
 - 输入：在 GUI 中选择预设 case，并填写参数；或直接向 `gui/gui_solver.jl` 传入 JSON 参数文件
-- 输出：运行结果写入 `gui/gui_results/`，包括 manifest、曲线、快照、VTK、mesh 预览和 `visual` 导出图
+- 输出：运行结果写入 `gui/gui_results/runs/<case_id>/<run_id>/`，包括 `runtime_params.json`、manifest、曲线、快照、VTK、mesh 预览和 `visual` 导出图
 
 ## 仓库结构
 
@@ -101,6 +102,6 @@ peng_pf_ui/
 
 ## 下一步
 
-- 优先为 fatigue / plastic fatigue 补齐专用 `visual exporter`
-- 统一结果目录与归档结构
 - 补 scan 型 case 的扫描列表编辑
+- 增加 `Preview / Full / Debug` 运行模式切换
+- 补更完整的系统测试与长程 benchmark 验证

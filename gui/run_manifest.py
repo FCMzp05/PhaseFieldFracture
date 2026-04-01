@@ -16,6 +16,8 @@ class RunManifest:
     backend_mode: str
     curve_kind: str
     source_script: str
+    run_dir: str
+    runtime_params_path: str
     native_output_dir: str
     mesh_paths: List[str] = field(default_factory=list)
     snapshot_paths: List[str] = field(default_factory=list)
@@ -39,6 +41,8 @@ class RunManifest:
             backend_mode=str(payload["backend_mode"]),
             curve_kind=str(payload["curve_kind"]),
             source_script=str(payload.get("source_script", "")),
+            run_dir=str(payload.get("run_dir", "")),
+            runtime_params_path=str(payload.get("runtime_params_path", "")),
             native_output_dir=str(payload.get("native_output_dir", "")),
             mesh_paths=_string_list(payload.get("mesh_paths", [])),
             snapshot_paths=_string_list(payload.get("snapshot_paths", [])),
@@ -86,6 +90,8 @@ def dedupe_existing_paths(paths: Iterable[Path]) -> List[str]:
 
 def manifest_file_payloads(manifest: RunManifest) -> List[Path]:
     files: List[Path] = []
+    if manifest.runtime_params_path:
+        files.append(Path(manifest.runtime_params_path))
     for bucket in (
         manifest.mesh_paths,
         manifest.snapshot_paths,

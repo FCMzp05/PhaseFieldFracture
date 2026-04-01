@@ -121,7 +121,7 @@ const verbose_substep = false
 
 const h_coarse = get_float(GUI_PARAMS, "h_coarse", 2.0)
 const h_fine = get_float(GUI_PARAMS, "h_fine", 0.2)
-const OUTPUT_DIR = "results_PlasticFatigue_CT"
+const OUTPUT_DIR = runtime_output_dir(GUI_RUNTIME, "results_PlasticFatigue_CT")
 const STOP_CRACK_X = 36.0
 const VTK_CRACK_FRACTIONS = [0.10, 0.30, 0.60, 0.90]
 

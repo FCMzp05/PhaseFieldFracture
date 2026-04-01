@@ -27,7 +27,8 @@ const CASE_SENT = "SENT"
 const CASE_SENS = "SENS"
 
 const GUI_DIR = @__DIR__
-const OUTPUT_DIR = joinpath(GUI_DIR, "gui_results")
+const DEFAULT_OUTPUT_DIR = joinpath(GUI_DIR, "gui_results")
+OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 const STOP_FLAG_PATH = joinpath(GUI_DIR, "gui_stop.flag")
 const PNG_DPI = 140
 const PNG_NX = 220
@@ -87,6 +88,9 @@ const CaseParams = Union{SentParams,SensParams}
 struct RunConfig
     case_name::String
     run_mode::String
+    run_id::String
+    run_dir::String
+    output_dir::String
     mesh_file::String
     params::CaseParams
 end
@@ -182,8 +186,11 @@ function parse_params(path::String)
         error("Unsupported case_name: " * selected_case)
     end
     run_mode = get(data, "run_mode", "compute")
+    run_id = get(data, "run_id", "")
+    run_dir = get(data, "run_dir", "")
+    output_dir = get(data, "output_dir", DEFAULT_OUTPUT_DIR)
     mesh_file = get(data, "mesh_file", "")
-    return RunConfig(selected_case, run_mode, mesh_file, params)
+    return RunConfig(selected_case, run_mode, run_id, run_dir, output_dir, mesh_file, params)
 end
 
 function validate_common_params(params::CaseParams)
@@ -974,6 +981,8 @@ function main()
     length(ARGS) == 1 || error("Usage: julia gui/gui_solver.jl gui/params_default.json")
     params_path = abspath(ARGS[1])
     config = parse_params(params_path)
+    global OUTPUT_DIR = abspath(config.output_dir)
+    mkpath(OUTPUT_DIR)
     if config.run_mode == "mesh"
         run_mesh_stage(config.params)
     elseif config.run_mode == "compute"

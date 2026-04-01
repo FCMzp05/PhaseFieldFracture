@@ -106,7 +106,7 @@ const BAND_MARGIN_Y = get_float(GUI_PARAMS, "BAND_MARGIN_Y", 3.0)
 # ============================================================================
 # Output / stopping
 # ============================================================================
-const OUTPUT_DIR = "results_ElasticFatigue_OffsetDoubleNotch"
+const OUTPUT_DIR = runtime_output_dir(GUI_RUNTIME, "results_ElasticFatigue_OffsetDoubleNotch")
 const D_CRACK = 0.95
 const D_THROUGH = 0.995
 const COALESCE_TOL = max(0.5 * l0, 0.05)

@@ -127,7 +127,7 @@ const stagger_tol = 1e-6
 const h_fine = get_float(GUI_PARAMS, "h_fine", 0.07)
 const h_coarse = get_float(GUI_PARAMS, "h_coarse", 0.45)
 
-const OUTPUT_DIR = "results_PlasticFracture_DoubleNotched"
+const OUTPUT_DIR = runtime_output_dir(GUI_RUNTIME, "results_PlasticFracture_DoubleNotched")
 const SNAPSHOT_DAMAGE_LEVELS = [0.20, 0.60, 0.90, 0.99]
 
 # ============================================================================

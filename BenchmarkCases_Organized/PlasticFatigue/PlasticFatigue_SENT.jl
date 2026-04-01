@@ -128,7 +128,7 @@ const Δt_step = Δt_cycle / N_STEPS_PER_CYCLE  # 每个子步的时间增量
 
 const h_fine = get_float(GUI_PARAMS, "h_fine", 0.005)    # 裂纹区域细网格尺寸 (mm)
 const h_coarse = get_float(GUI_PARAMS, "h_coarse", 0.05)   # 远场粗网格尺寸 (mm)
-const OUTPUT_DIR = "results_PlasticFatigue_SENT"
+const OUTPUT_DIR = runtime_output_dir(GUI_RUNTIME, "results_PlasticFatigue_SENT")
 const TIP_X_BACK = 3.0 * l0
 const TIP_X_FRONT = 1.0 * l0
 const TIP_Y_HALF = 3.0 * l0
