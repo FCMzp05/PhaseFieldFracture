@@ -7,6 +7,7 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtGui import QColor, QImage
+from PyQt5.QtWidgets import QGraphicsOpacityEffect
 from PyQt5.QtWidgets import QApplication
 
 import gui.gui_main as gui_main
@@ -142,6 +143,28 @@ class GuiPostprocessTests(unittest.TestCase):
         viewer.scroll_up()
         self.app.processEvents()
         self.assertLessEqual(scrollbar.value(), start_value)
+
+    def test_mesh_preview_widget_is_not_wrapped_by_opacity_animation(self):
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.app.processEvents()
+
+        image_path = self.temp_path / "mesh_preview_effect.png"
+        image = QImage(640, 960, QImage.Format_RGB32)
+        image.fill(QColor("#2f6fb2"))
+        self.assertTrue(image.save(str(image_path)))
+
+        viewer = self.window.mesh_preview_label
+        with mock.patch.object(self.window, "_animations_enabled", return_value=True):
+            self.window._set_label_image(viewer, image_path, "Mesh preview will appear here.", animate=True)
+            self.app.processEvents()
+
+        self.assertFalse(isinstance(viewer.graphicsEffect(), QGraphicsOpacityEffect))
+        self.assertIsNotNone(viewer.image_label.pixmap())
+        viewer.zoom_in()
+        self.app.processEvents()
+        self.assertIsNotNone(viewer.image_label.pixmap())
 
 
 if __name__ == "__main__":

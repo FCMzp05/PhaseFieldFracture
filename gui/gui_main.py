@@ -117,9 +117,9 @@ SERIF_FONT_FAMILY_CANDIDATES = (
     "DejaVu Serif",
 )
 APP_FONT_FAMILY = PREFERRED_SERIF_FONT_FAMILY
-APP_FONT_SIZE = 15
-TITLE_FONT_SIZE = 24
-PLOT_FONT_SIZE = 14
+APP_FONT_SIZE = 17
+TITLE_FONT_SIZE = 28
+PLOT_FONT_SIZE = 16
 ANIMATION_FAST_MS = 150
 ANIMATION_MEDIUM_MS = 220
 ANIMATION_SLOW_MS = 320
@@ -127,7 +127,7 @@ ANIMATION_TOAST_STAY_MS = 2200
 JULIA_COMMAND = "julia"
 GUI_ENVS_JULIA_PROJECT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia/environments/gui_envs"
 GUI_ENVS_JULIA_DEPOT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia"
-SUBTITLE_FONT_SIZE = 12
+SUBTITLE_FONT_SIZE = 14
 TOP_LEVEL_RESULT_PATTERNS = (
     "mesh_*.msh",
     "mesh_*.png",
@@ -333,6 +333,8 @@ class CurveCanvas(FigureCanvas):
         self._x_label = "u (mm)"
         self._y_label = "F (kN)"
         super().__init__(self.figure)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumHeight(250)
         self.update_curve([], [])
 
     def set_curve_kind(self, curve_kind: str):
@@ -1167,7 +1169,9 @@ class MainWindow(QMainWindow):
 
         right_layout.addWidget(self._create_section_label("Live Preview"))
         self.damage_label = self._create_image_label("Damage snapshot will appear here.")
+        self.damage_label.setMinimumHeight(320)
         self.curve_canvas = CurveCanvas()
+        self.curve_canvas.setObjectName("CurveCanvas")
         right_layout.addWidget(self.damage_label, stretch=3)
         right_layout.addWidget(self.curve_canvas, stretch=2)
         self.compute_preview_card = right_panel
@@ -1222,6 +1226,7 @@ class MainWindow(QMainWindow):
         self.postprocess_stack.setObjectName("PreviewSurface")
         self.postprocess_label = self._create_image_viewer("Post-process output will appear here.")
         self.postprocess_curve_canvas = CurveCanvas()
+        self.postprocess_curve_canvas.setObjectName("CurveCanvas")
         self.postprocess_curve_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.postprocess_table = QTableWidget(0, 0)
         self.postprocess_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -1301,9 +1306,9 @@ class MainWindow(QMainWindow):
             QWidget#AppRoot {{
                 background: qlineargradient(
                     x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #eef3f8,
-                    stop:0.45 #f5f8fc,
-                    stop:1 #edf2f7
+                    stop:0 #d8e2ec,
+                    stop:0.45 #e2e9f1,
+                    stop:1 #d2dde8
                 );
             }}
             QWidget#HeaderCard,
@@ -1312,43 +1317,43 @@ class MainWindow(QMainWindow):
             QWidget#ToolbarCard {{
                 background: qlineargradient(
                     x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #fcfdff,
-                    stop:1 #f6f9fc
+                    stop:0 #f4f8fc,
+                    stop:1 #e7eef5
                 );
-                border: 1px solid #d7e0ea;
+                border: 1px solid #bccbda;
                 border-radius: 18px;
             }}
             QLabel#WindowTitleLabel {{
-                color: #132033;
+                color: #0e1b2a;
                 font-size: {TITLE_FONT_SIZE}px;
                 font-weight: 700;
             }}
             QLabel#WindowSubtitleLabel {{
-                color: #6a7687;
+                color: #4f5f73;
                 font-size: {SUBTITLE_FONT_SIZE}px;
             }}
             QLabel#ControlLabel {{
-                color: #6c7788;
-                font-size: 11px;
+                color: #4e5f73;
+                font-size: 12px;
                 font-weight: 600;
                 letter-spacing: 0.08em;
                 text-transform: uppercase;
             }}
             QLabel#SectionLabel {{
-                color: #203046;
-                font-size: 16px;
+                color: #15273a;
+                font-size: 18px;
                 font-weight: 700;
             }}
             QLabel#CaseStatusBadge {{
-                color: #21415f;
+                color: #17324f;
                 background: qlineargradient(
                     x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #edf5ff,
-                    stop:1 #e3eefb
+                    stop:0 #dbe8f5,
+                    stop:1 #cfdeef
                 );
-                border: 1px solid #c5d8ee;
+                border: 1px solid #aebfd3;
                 border-radius: 12px;
-                padding: 5px 12px;
+                padding: 6px 14px;
                 font-weight: 600;
             }}
             QLabel#IntroLabel,
@@ -1356,50 +1361,50 @@ class MainWindow(QMainWindow):
             QLabel#StatusCard,
             QLabel#MetaCard {{
                 border-radius: 12px;
-                padding: 10px 12px;
+                padding: 12px 14px;
             }}
             QLabel#IntroLabel {{
-                color: #37516c;
-                background: #eef5fb;
-                border: 1px solid #d4e3f1;
+                color: #24405d;
+                background: #dde8f3;
+                border: 1px solid #bfd0e1;
             }}
             QLabel#HintLabel {{
-                color: #637286;
-                background: #f5f7fa;
-                border: 1px dashed #d7dee8;
+                color: #47596d;
+                background: #ebf0f5;
+                border: 1px dashed #c2cdda;
             }}
             QLabel#StatusCard {{
-                color: #1f344c;
-                background: #edf4ff;
-                border: 1px solid #d7e3f2;
+                color: #18314a;
+                background: #dce8f5;
+                border: 1px solid #b9ccde;
                 font-weight: 600;
             }}
             QLabel#MetaCard {{
-                color: #55667b;
-                background: #f6f8fb;
-                border: 1px solid #dbe3ec;
+                color: #3f5166;
+                background: #e7edf4;
+                border: 1px solid #c2cdd8;
             }}
             QLabel#ToastLabel {{
                 color: #ffffff;
-                background: rgba(20, 35, 56, 225);
+                background: rgba(18, 34, 53, 232);
                 border: 1px solid rgba(255, 255, 255, 24);
                 border-radius: 14px;
                 padding: 12px 14px;
                 font-weight: 600;
             }}
             QLabel#ToastLabel[tone="success"] {{
-                background: rgba(26, 94, 63, 230);
+                background: rgba(24, 82, 58, 232);
             }}
             QLabel#ToastLabel[tone="warning"] {{
-                background: rgba(169, 90, 26, 232);
+                background: rgba(142, 82, 28, 234);
             }}
             QLabel#ToastLabel[tone="error"] {{
-                background: rgba(145, 42, 44, 232);
+                background: rgba(128, 38, 40, 234);
             }}
             QLabel#PreviewZoomLabel {{
-                color: #617186;
+                color: #46586d;
                 padding: 0 4px;
-                font-size: 12px;
+                font-size: 13px;
                 font-weight: 600;
             }}
             QLabel#PreviewLabel,
@@ -1408,21 +1413,21 @@ class MainWindow(QMainWindow):
             QScrollArea#PanelScrollArea,
             QPlainTextEdit#LogPanel,
             QTableWidget {{
-                background: #ffffff;
-                border: 1px solid #d8e0ea;
+                background: #fdfefe;
+                border: 1px solid #c5cfda;
                 border-radius: 14px;
             }}
             QScrollArea#PanelScrollArea > QWidget > QWidget {{
                 background: transparent;
             }}
             QLabel#PreviewLabel {{
-                color: #728096;
-                padding: 12px;
+                color: #57687d;
+                padding: 14px;
                 background: transparent;
             }}
             QLabel#PreviewContentLabel {{
-                color: #728096;
-                padding: 12px;
+                color: #57687d;
+                padding: 14px;
                 background: transparent;
             }}
             QTabWidget::pane {{
@@ -1430,137 +1435,193 @@ class MainWindow(QMainWindow):
                 top: 0;
             }}
             QTabBar::tab {{
-                background: #dde5ee;
-                color: #5b687b;
+                background: #c7d3df;
+                color: #405062;
                 border: none;
-                border-top-left-radius: 12px;
-                border-top-right-radius: 12px;
-                padding: 8px 16px;
-                margin-right: 6px;
+                border-top-left-radius: 14px;
+                border-top-right-radius: 14px;
+                min-width: 136px;
+                min-height: 34px;
+                padding: 11px 24px 12px 24px;
+                margin-right: 8px;
+                font-size: 17px;
                 font-weight: 600;
             }}
             QTabBar::tab:selected {{
-                background: #fbfcfe;
-                color: #17263a;
+                background: #f4f8fc;
+                color: #112235;
+            }}
+            QTabBar::tab:!selected:hover {{
+                background: #d5dfeb;
             }}
             QGroupBox {{
-                background: #ffffff;
-                border: 1px solid #dbe3ec;
+                background: #f9fbfd;
+                border: 1px solid #c6d1db;
                 border-radius: 14px;
                 margin-top: 14px;
-                padding-top: 10px;
+                padding-top: 12px;
                 font-weight: 700;
-                color: #223449;
+                color: #192c40;
             }}
             QGroupBox[collapsible_section="true"][expanded="false"] {{
-                background: #f8fafc;
-                border: 1px dashed #d7e0ea;
+                background: #edf2f7;
+                border: 1px dashed #c2ccd6;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 14px;
                 padding: 0 6px;
-                color: #223449;
+                color: #192c40;
             }}
             QGroupBox[collapsible_section="true"][expanded="false"]::title {{
-                color: #5f7084;
+                color: #4b5d72;
             }}
             QLineEdit,
             QComboBox,
             QPlainTextEdit,
             QTableWidget {{
-                color: #152338;
-                selection-background-color: #d7e7fb;
-                selection-color: #152338;
+                color: #112035;
+                selection-background-color: #c5daf4;
+                selection-color: #112035;
             }}
             QLineEdit,
             QComboBox {{
-                min-height: 20px;
-                padding: 7px 10px;
-                border: 1px solid #cdd7e3;
+                min-height: 24px;
+                padding: 8px 11px;
+                border: 1px solid #b8c7d7;
                 border-radius: 10px;
-                background: #ffffff;
+                background: #fbfdff;
             }}
             QLineEdit:focus,
             QComboBox:focus,
             QPlainTextEdit:focus,
             QTableWidget:focus {{
-                border: 1px solid #7aa7da;
+                border: 1px solid #4f84bb;
             }}
             QComboBox::drop-down {{
                 border: none;
-                width: 24px;
+                width: 28px;
             }}
             QPushButton {{
-                min-height: 20px;
-                padding: 8px 14px;
+                min-height: 24px;
+                padding: 9px 16px;
                 border-radius: 11px;
-                border: 1px solid #cad5e2;
-                background: #ffffff;
-                color: #203247;
+                border: 1px solid #b7c5d4;
+                background: #ebf1f7;
+                color: #16293d;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background: #f2f6fb;
+                background: #dfe8f2;
             }}
             QPushButton[floating="true"] {{
-                border-color: #9ab9dd;
+                border-color: #7e9fbe;
             }}
             QPushButton[variant="primary"] {{
                 background: qlineargradient(
                     x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #2b7cc0,
-                    stop:1 #1f62a7
+                    stop:0 #255e95,
+                    stop:1 #1a4a7c
                 );
-                border: 1px solid #1f67ab;
+                border: 1px solid #1a4d81;
                 color: #ffffff;
             }}
             QPushButton[variant="primary"]:hover {{
                 background: qlineargradient(
                     x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #327dbd,
-                    stop:1 #245f98
+                    stop:0 #2d69a1,
+                    stop:1 #205686
                 );
             }}
             QPushButton[variant="secondary"] {{
-                background: #f6f9fd;
-                color: #27415d;
+                background: #e8eff6;
+                color: #1c3a56;
             }}
             QPushButton[variant="danger"] {{
-                background: #fff1ef;
-                border: 1px solid #efc0ba;
-                color: #a73a2f;
+                background: #f8e7e4;
+                border: 1px solid #d8a7a2;
+                color: #8c2f26;
             }}
             QPushButton:disabled,
             QComboBox:disabled,
             QLineEdit:disabled {{
-                color: #94a0b0;
-                background: #eef2f6;
-                border-color: #d9e0e8;
+                color: #738296;
+                background: #e4ebf1;
+                border-color: #c7d1db;
             }}
             QProgressBar {{
-                min-height: 10px;
-                border: 1px solid #d8e0ea;
+                min-height: 12px;
+                border: 1px solid #bfccd8;
                 border-radius: 8px;
-                background: #edf2f7;
+                background: #dee6ee;
                 text-align: center;
-                color: #36506d;
+                color: #233f5b;
             }}
             QProgressBar::chunk {{
                 border-radius: 7px;
                 background: qlineargradient(
                     x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #6ea5d8,
-                    stop:1 #1f6fb2
+                    stop:0 #5e8fbe,
+                    stop:1 #1d598e
                 );
             }}
             QHeaderView::section {{
-                background: #eef3f8;
-                color: #45576d;
+                background: #dfe7ef;
+                color: #304258;
                 border: none;
-                border-bottom: 1px solid #d6e0ea;
-                padding: 8px;
+                border-bottom: 1px solid #c1ccd8;
+                padding: 10px;
                 font-weight: 700;
+            }}
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 12px;
+                margin: 8px 2px 8px 0;
+                border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background: #8fa6bc;
+                min-height: 52px;
+                border-radius: 6px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: #748ca5;
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0px;
+                border: none;
+                background: transparent;
+            }}
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {{
+                border: none;
+                background: transparent;
+            }}
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 12px;
+                margin: 0 8px 2px 8px;
+                border: none;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: #8fa6bc;
+                min-width: 52px;
+                border-radius: 6px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: #748ca5;
+            }}
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {{
+                width: 0px;
+                border: none;
+                background: transparent;
+            }}
+            QScrollBar::add-page:horizontal,
+            QScrollBar::sub-page:horizontal {{
+                border: none;
+                background: transparent;
             }}
             """
         )
@@ -1928,9 +1989,13 @@ class MainWindow(QMainWindow):
         self.compute_left_scroll.setMinimumWidth(0 if stacked_main else 380)
 
         preview_min_height = 320 if stacked_main else 440
+        compute_preview_min_height = 260 if stacked_main else 320
+        curve_min_height = 220 if stacked_main else 250
         self.mesh_preview_label.setMinimumHeight(preview_min_height)
-        self.damage_label.setMinimumHeight(preview_min_height)
+        self.damage_label.setMinimumHeight(compute_preview_min_height)
+        self.curve_canvas.setMinimumHeight(curve_min_height)
         self.postprocess_label.setMinimumHeight(preview_min_height)
+        self.postprocess_curve_canvas.setMinimumHeight(curve_min_height)
         self.postprocess_table.setMinimumHeight(260 if stacked_main else 340)
 
         self.scan_add_button.setMinimumWidth(0 if compact_actions else 90)
@@ -2810,8 +2875,22 @@ class MainWindow(QMainWindow):
     def _visual_placeholder(self):
         return "Exported visual panels will appear here."
 
+    def _reset_widget_animations(self, widget: QWidget):
+        content_animation = getattr(widget, "_content_animation", None)
+        if content_animation is not None:
+            content_animation.stop()
+            widget._content_animation = None
+        opacity_animation = getattr(widget, "_opacity_animation", None)
+        if opacity_animation is not None:
+            opacity_animation.stop()
+            widget._opacity_animation = None
+        effect = widget.graphicsEffect()
+        if isinstance(effect, QGraphicsOpacityEffect):
+            widget.setGraphicsEffect(None)
+
     def _clear_label_image(self, label: QWidget, placeholder: str):
         if isinstance(label, ImagePreviewWidget):
+            self._reset_widget_animations(label)
             label.clear_image(placeholder)
             return
         label.setPixmap(QPixmap())
@@ -2819,6 +2898,7 @@ class MainWindow(QMainWindow):
 
     def _render_label_image(self, label: QWidget, image_path: Path | None, placeholder: str):
         if isinstance(label, ImagePreviewWidget):
+            self._reset_widget_animations(label)
             label.set_image(image_path, placeholder)
             return
         if image_path is None or not image_path.exists():
@@ -2834,6 +2914,9 @@ class MainWindow(QMainWindow):
 
     def _set_label_image(self, label: QWidget, image_path: Path | None, placeholder: str, animate: bool = True):
         apply_content = lambda: self._render_label_image(label, image_path, placeholder)
+        if isinstance(label, ImagePreviewWidget):
+            apply_content()
+            return
         if not animate or not self._animations_enabled():
             apply_content()
             effect = self._ensure_opacity_effect(label)
