@@ -145,7 +145,7 @@ class GuiScanPostprocessTests(unittest.TestCase):
         self.assertEqual([line.get_label() for line in lines], ["H01E", "H02E"])
         self.assertEqual(list(lines[0].get_xdata()), [0.0, 0.1, 0.2])
         self.assertEqual(list(lines[1].get_ydata()), [0.0, 2.5, 6.5])
-        self.assertIn("2 series [H01E, H02E]", self.window.postprocess_detail_label.text())
+        self.assertIn("2 Series [H01E, H02E]", self.window.postprocess_detail_label.text())
 
 
 if __name__ == "__main__":

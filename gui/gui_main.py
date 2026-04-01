@@ -339,13 +339,13 @@ class ProtocolJuliaWorker(QThread):
     def stop(self):
         self._stop_requested = True
         STOP_FLAG.write_text("stop\n", encoding="utf-8")
-        self.status_update.emit("Stopping solver...")
+        self.status_update.emit("Stopping Solver...")
 
     def run(self):
         solver_path = GUI_DIR / "gui_solver.jl"
         cmd = f'{julia_env_prefix()}{JULIA_COMMAND} "{solver_path}" "{self.params_path}"'
         stage_label = "mesh" if self.run_mode == "mesh" else "compute"
-        self.status_update.emit(f"Launching Julia {self.protocol_case_name} {stage_label} stage...")
+        self.status_update.emit(f"Launching Julia {self.protocol_case_name} {stage_label.title()} Stage...")
         self._process = subprocess.Popen(
             ["bash", "-lc", cmd],
             cwd=str(REPO_ROOT),
@@ -356,7 +356,7 @@ class ProtocolJuliaWorker(QThread):
         )
 
         success = False
-        message = "Solver finished."
+        message = "Solver Finished."
         try:
             assert self._process.stdout is not None
             for raw_line in self._process.stdout:
@@ -369,14 +369,14 @@ class ProtocolJuliaWorker(QThread):
             return_code = self._process.wait()
             if self._stop_requested:
                 success = True
-                message = "Stopped by user."
+                message = "Stopped By User."
             elif return_code == 0:
                 success = True
-                message = "Mesh generated." if self.run_mode == "mesh" else "Run completed."
+                message = "Mesh Generated." if self.run_mode == "mesh" else "Run Completed."
             else:
-                message = f"Solver exited with code {return_code}."
+                message = f"Solver Exited With Code {return_code}."
         except Exception as exc:
-            message = f"Worker error: {exc}"
+            message = f"Worker Error: {exc}"
             self.log_line.emit(message)
         finally:
             self.finished_state.emit(success, self.case_id, self.run_mode, message)
@@ -404,7 +404,7 @@ class ProtocolJuliaWorker(QThread):
             self.displacement_update.emit(line.split(" ", 1)[1])
             return
         if line.startswith("DONE"):
-            self.status_update.emit("Solver finished.")
+            self.status_update.emit("Solver Finished.")
             if self.run_mode == "compute":
                 self.progress_update.emit(100.0)
             return
@@ -443,14 +443,14 @@ class BatchJuliaWorker(QThread):
 
     def stop(self):
         self._stop_requested = True
-        self.status_update.emit("Stopping benchmark...")
+        self.status_update.emit("Stopping Benchmark...")
         if self._process is not None and self._process.poll() is None:
             self._process.terminate()
 
     def run(self):
         cmd = f'{julia_env_prefix()}{JULIA_COMMAND} "{self.script_path}" "{self.params_path}"'
         stage_label = "mesh" if self.run_mode == "mesh" else "compute"
-        self.status_update.emit(f"Launching benchmark script: {self.script_path.name} [{stage_label}]")
+        self.status_update.emit(f"Launching Benchmark Script: {self.script_path.name} [{stage_label.title()}]")
         self._process = subprocess.Popen(
             ["bash", "-lc", cmd],
             cwd=str(REPO_ROOT),
@@ -461,7 +461,7 @@ class BatchJuliaWorker(QThread):
         )
 
         success = False
-        message = "Benchmark finished."
+        message = "Benchmark Finished."
         try:
             assert self._process.stdout is not None
             for raw_line in self._process.stdout:
@@ -473,15 +473,15 @@ class BatchJuliaWorker(QThread):
             return_code = self._process.wait()
             if self._stop_requested:
                 success = True
-                message = "Stopped by user."
+                message = "Stopped By User."
             elif return_code == 0:
                 success = True
                 self.progress_update.emit(100.0)
-                message = "Batch mesh completed." if self.run_mode == "mesh" else "Batch benchmark completed."
+                message = "Batch Mesh Completed." if self.run_mode == "mesh" else "Batch Benchmark Completed."
             else:
-                message = f"Benchmark exited with code {return_code}."
+                message = f"Benchmark Exited With Code {return_code}."
         except Exception as exc:
-            message = f"Worker error: {exc}"
+            message = f"Worker Error: {exc}"
             self.log_line.emit(message)
         finally:
             self.finished_state.emit(success, self.case_id, self.run_mode, message)
@@ -640,15 +640,15 @@ class MainWindow(QMainWindow):
 
     def _default_mesh_status(self, case):
         if not case.is_ready:
-            return "Planned case. Compute is not available yet."
+            return "Planned Case. Compute Is Not Available Yet."
         if not case.mesh_stage_enabled:
-            return "This benchmark builds its mesh during compute."
-        return "Mesh not generated."
+            return "This Benchmark Builds Its Mesh During Compute."
+        return "Mesh Not Generated."
 
     def _default_compute_status(self, case):
         if not case.is_ready:
-            return "Planned case. Waiting for future integration."
-        return "Waiting for compute stage."
+            return "Planned Case. Waiting For Future Integration."
+        return "Waiting For Compute Stage."
 
     def _build_ui(self):
         root = QWidget()
@@ -674,7 +674,7 @@ class MainWindow(QMainWindow):
         title = QLabel("Benchmark Workbench")
         title.setObjectName("WindowTitleLabel")
         title_layout.addWidget(title)
-        self.window_subtitle_label = QLabel("Preset benchmark workflows for mesh, compute, and post-process.")
+        self.window_subtitle_label = QLabel("Preset Benchmark Workflows For Mesh, Compute, And Post-Process.")
         self.window_subtitle_label.setObjectName("WindowSubtitleLabel")
         self.window_subtitle_label.setWordWrap(True)
         title_layout.addWidget(self.window_subtitle_label)
@@ -706,7 +706,7 @@ class MainWindow(QMainWindow):
         self.tabs.setDocumentMode(True)
         self.mesh_tab_index = self.tabs.addTab(self._build_mesh_tab(), "Mesh")
         self.compute_tab_index = self.tabs.addTab(self._build_compute_tab(), "Compute")
-        self.post_tab_index = self.tabs.addTab(self._build_postprocess_tab(), "Post-process")
+        self.post_tab_index = self.tabs.addTab(self._build_postprocess_tab(), "Post-Process")
         root_layout.addWidget(self.tabs)
         self.setCentralWidget(root)
 
@@ -744,7 +744,7 @@ class MainWindow(QMainWindow):
             self.section_bindings.append({"section": box, "field_keys": field_keys})
             left_layout.addWidget(box)
 
-        self.mesh_empty_label = QLabel("This case has no editable mesh parameters in the GUI.")
+        self.mesh_empty_label = QLabel("This Case Has No Editable Mesh Parameters In The GUI.")
         self.mesh_empty_label.setObjectName("HintLabel")
         self.mesh_empty_label.setWordWrap(True)
         left_layout.addWidget(self.mesh_empty_label)
@@ -762,7 +762,7 @@ class MainWindow(QMainWindow):
         self.mesh_left_panel = left_panel
         self.mesh_left_scroll = self._wrap_panel_scroll(left_panel)
 
-        self.mesh_preview_label = self._create_image_label("Mesh preview will appear here.")
+        self.mesh_preview_label = self._create_image_label("Mesh Preview Will Appear Here.")
         mesh_preview_card = QWidget()
         mesh_preview_card.setObjectName("PreviewCard")
         mesh_preview_layout = QVBoxLayout(mesh_preview_card)
@@ -809,7 +809,7 @@ class MainWindow(QMainWindow):
             self.section_bindings.append({"section": box, "field_keys": field_keys})
             left_layout.addWidget(box)
 
-        self.compute_empty_label = QLabel("This case currently runs with its benchmark defaults.")
+        self.compute_empty_label = QLabel("This Case Currently Runs With Its Benchmark Defaults.")
         self.compute_empty_label.setObjectName("HintLabel")
         self.compute_empty_label.setWordWrap(True)
         left_layout.addWidget(self.compute_empty_label)
@@ -826,7 +826,7 @@ class MainWindow(QMainWindow):
 
         self.scan_editor_box = QGroupBox("Scan Cases")
         scan_layout = QVBoxLayout(self.scan_editor_box)
-        self.scan_editor_intro_label = QLabel("Edit the scan list for this benchmark.")
+        self.scan_editor_intro_label = QLabel("Edit The Scan List For This Benchmark.")
         self.scan_editor_intro_label.setWordWrap(True)
         scan_layout.addWidget(self.scan_editor_intro_label)
         self.scan_table = QTableWidget(0, 0)
@@ -888,7 +888,7 @@ class MainWindow(QMainWindow):
         right_layout.setSpacing(12)
 
         right_layout.addWidget(self._create_section_label("Live Preview"))
-        self.damage_label = self._create_image_label("Damage snapshot will appear here.")
+        self.damage_label = self._create_image_label("Damage Snapshot Will Appear Here.")
         self.curve_canvas = CurveCanvas()
         right_layout.addWidget(self.damage_label, stretch=3)
         right_layout.addWidget(self.curve_canvas, stretch=2)
@@ -928,7 +928,7 @@ class MainWindow(QMainWindow):
         action_row = QHBoxLayout()
         action_row.setSpacing(12)
         self.postprocess_action_layout = action_row
-        self.open_paraview_button = QPushButton("Open in ParaView")
+        self.open_paraview_button = QPushButton("Open In ParaView")
         self.open_paraview_button.setProperty("variant", "secondary")
         self.open_paraview_button.clicked.connect(self.open_in_paraview)
         action_row.addWidget(self.open_paraview_button)
@@ -942,7 +942,7 @@ class MainWindow(QMainWindow):
 
         self.postprocess_stack = QStackedWidget()
         self.postprocess_stack.setObjectName("PreviewSurface")
-        self.postprocess_label = self._create_image_label("Post-process output will appear here.")
+        self.postprocess_label = self._create_image_label("Post-Process Output Will Appear Here.")
         self.postprocess_curve_canvas = CurveCanvas()
         self.postprocess_curve_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.postprocess_table = QTableWidget(0, 0)
@@ -955,7 +955,7 @@ class MainWindow(QMainWindow):
         self.postprocess_stack.addWidget(self.postprocess_table)
         toolbar_layout.addWidget(self.postprocess_stack, stretch=1)
 
-        self.vtk_label = QLabel("Latest VTK: none")
+        self.vtk_label = QLabel("Latest VTK: None")
         self.vtk_label.setObjectName("MetaCard")
         self.vtk_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         toolbar_layout.addWidget(self.vtk_label)
@@ -1752,10 +1752,10 @@ class MainWindow(QMainWindow):
             manifest.snapshot_paths or manifest.curve_csv_paths or manifest.vtk_paths or manifest.exported_visual_paths
         )
         if case.mesh_stage_enabled:
-            state["mesh_status"] = "Mesh ready." if state["mesh_ready"] else "Mesh not generated."
+            state["mesh_status"] = "Mesh Ready." if state["mesh_ready"] else "Mesh Not Generated."
         else:
-            state["mesh_status"] = "Mesh generated inside benchmark run." if state["compute_completed"] else self._default_mesh_status(case)
-        state["compute_status"] = "Latest results loaded from manifest." if state["compute_completed"] else self._default_compute_status(case)
+            state["mesh_status"] = "Mesh Generated Inside Benchmark Run." if state["compute_completed"] else self._default_mesh_status(case)
+        state["compute_status"] = "Latest Results Loaded From Manifest." if state["compute_completed"] else self._default_compute_status(case)
         state["curve_x"], state["curve_y"] = self._load_curve_history(manifest, case)
         state["history_selection"]["Mesh"] = str(state["mesh_preview_path"]) if state["mesh_preview_path"] else None
         state["history_selection"]["Damage"] = str(state["latest_damage_path"]) if state["latest_damage_path"] else None
@@ -1990,7 +1990,7 @@ class MainWindow(QMainWindow):
                 self.scan_table.setItem(row_index, column_index, item)
         self._syncing_scan_table = False
         self.scan_editor_intro_label.setText(
-            "Edit the scan list for this benchmark." if case.scan_editor_kind else "This benchmark does not use a scan list."
+            "Edit The Scan List For This Benchmark." if case.scan_editor_kind else "This Benchmark Does Not Use A Scan List."
         )
         self._update_scan_editor_enabled_state()
 
@@ -2024,10 +2024,10 @@ class MainWindow(QMainWindow):
             )
 
         self.mesh_intro_label.setText(
-            "Generate mesh first, then run compute." if case.mesh_stage_enabled else "This benchmark creates its mesh during compute."
+            "Generate Mesh First, Then Run Compute." if case.mesh_stage_enabled else "This Benchmark Creates Its Mesh During Compute."
         )
         self.compute_intro_label.setText(
-            "Protocol cases stream solver updates in real time." if case.backend_mode == "protocol_julia" else "Batch benchmark runs stream logs and refresh results after completion."
+            "Protocol Cases Stream Solver Updates In Real Time." if case.backend_mode == "protocol_julia" else "Batch Benchmark Runs Stream Logs And Refresh Results After Completion."
         )
 
         self.mesh_status_label.setText(state["mesh_status"])
@@ -2039,7 +2039,7 @@ class MainWindow(QMainWindow):
         self._scroll_log_to_end()
         self._set_label_image(self.mesh_preview_label, state["mesh_preview_path"], self._mesh_placeholder())
         self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder())
-        self.vtk_label.setText(f"Latest VTK: {state['latest_vtk_path'] or 'none'}")
+        self.vtk_label.setText(f"Latest VTK: {state['latest_vtk_path'] or 'None'}")
         self._sync_postprocess_view_combo(case.case_id)
         self.refresh_postprocess_view(prefer_latest=False)
         self._sync_run_profile_ui(case.case_id)
@@ -2101,16 +2101,16 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(self.mesh_tab_index if run_mode == "mesh" else self.compute_tab_index)
 
     def _mesh_placeholder(self):
-        return "Generate mesh to view the mesh preview."
+        return "Generate Mesh To View The Mesh Preview."
 
     def _damage_placeholder(self):
-        return "Run compute to view the damage contour."
+        return "Run Compute To View The Damage Contour."
 
     def _displacement_placeholder(self):
-        return "Run compute to view the displacement contour."
+        return "Run Compute To View The Displacement Contour."
 
     def _visual_placeholder(self):
-        return "Exported visual panels will appear here."
+        return "Exported Visual Panels Will Appear Here."
 
     def _clear_label_image(self, label: QLabel, placeholder: str):
         label.setPixmap(QPixmap())
@@ -2141,29 +2141,29 @@ class MainWindow(QMainWindow):
         if view_name == "Visual Export":
             path = self.history_combo.currentData()
             return (Path(path), self._visual_placeholder()) if path else (None, self._visual_placeholder())
-        return None, "Post-process output will appear here."
+        return None, "Post-Process Output Will Appear Here."
 
     def _postprocess_detail_text(self, view_name: str, selected_path: str | None):
         if view_name == "Summary Table":
-            return f"Summary Table: {selected_path}" if selected_path else "Scan summary table will appear here."
+            return f"Summary Table: {selected_path}" if selected_path else "Scan Summary Table Will Appear Here."
         if view_name == "Comparison Curve":
             series = self._comparison_curve_series(self.current_case)
             if series:
                 labels = ", ".join(item["label"] for item in series)
-                return f"Comparison Curve: {len(series)} series [{labels}]"
-            return "Comparison curves will appear here."
+                return f"Comparison Curve: {len(series)} Series [{labels}]"
+            return "Comparison Curves Will Appear Here."
         if selected_path:
             return f"{view_name}: {selected_path}"
         placeholders = {
             "Mesh": self._mesh_placeholder(),
             "Damage": self._damage_placeholder(),
             "Displacement": self._displacement_placeholder(),
-            "Curve": "Curve data will appear here.",
-            "Summary Table": "Scan summary table will appear here.",
-            "Comparison Curve": "Comparison curves will appear here.",
+            "Curve": "Curve Data Will Appear Here.",
+            "Summary Table": "Scan Summary Table Will Appear Here.",
+            "Comparison Curve": "Comparison Curves Will Appear Here.",
             "Visual Export": self._visual_placeholder(),
         }
-        return placeholders.get(view_name, "Post-process output will appear here.")
+        return placeholders.get(view_name, "Post-Process Output Will Appear Here.")
 
     def _history_paths_for_case(self, case_id: str, view_name: str):
         state = self.case_states[case_id]
@@ -2535,41 +2535,41 @@ class MainWindow(QMainWindow):
     def start_mesh_generation(self):
         case = self._current_case_def()
         if not case.is_ready:
-            QMessageBox.warning(self, "Planned case", "This benchmark is listed but not integrated yet.")
+            QMessageBox.warning(self, "Planned Case", "This Benchmark Is Listed But Not Integrated Yet.")
             return
         if not case.mesh_stage_enabled:
-            QMessageBox.warning(self, "Mesh unavailable", "This benchmark builds its mesh during the compute stage.")
+            QMessageBox.warning(self, "Mesh Unavailable", "This Benchmark Builds Its Mesh During The Compute Stage.")
             return
         try:
             params = self.collect_params()
             scan_cases = self._collect_scan_cases(case)
         except ValueError as exc:
-            QMessageBox.critical(self, "Invalid input", str(exc))
+            QMessageBox.critical(self, "Invalid Input", str(exc))
             return
         run_profile = self._current_state()["run_profile"]
         effective_params = self._effective_params_for_run(case, params, run_profile)
 
         self._invalidate_case_mesh_state(self.current_case, clear_log=True)
         self._apply_case_state_to_ui()
-        self._current_state()["mesh_status"] = f"Generating {case.display_name} mesh..."
+        self._current_state()["mesh_status"] = f"Generating {case.display_name} Mesh..."
         self.mesh_status_label.setText(self._current_state()["mesh_status"])
-        self._clear_label_image(self.mesh_preview_label, "Waiting for mesh preview...")
+        self._clear_label_image(self.mesh_preview_label, "Waiting For Mesh Preview...")
         self._start_worker("mesh", effective_params, case, run_profile, scan_cases)
 
     def start_run(self):
         case = self._current_case_def()
         state = self._current_state()
         if not case.is_ready:
-            QMessageBox.warning(self, "Planned case", "This benchmark is listed but not integrated yet.")
+            QMessageBox.warning(self, "Planned Case", "This Benchmark Is Listed But Not Integrated Yet.")
             return
         if case.mesh_stage_enabled and (not state["mesh_ready"] or state["mesh_artifact_path"] is None):
-            QMessageBox.warning(self, "Mesh required", "Generate mesh first before running compute.")
+            QMessageBox.warning(self, "Mesh Required", "Generate Mesh First Before Running Compute.")
             return
         try:
             params = self.collect_params()
             scan_cases = self._collect_scan_cases(case)
         except ValueError as exc:
-            QMessageBox.critical(self, "Invalid input", str(exc))
+            QMessageBox.critical(self, "Invalid Input", str(exc))
             return
         run_profile = self._current_state()["run_profile"]
         effective_params = self._effective_params_for_run(case, params, run_profile)
@@ -2577,7 +2577,7 @@ class MainWindow(QMainWindow):
         self._clear_case_compute_outputs(self.current_case, clear_log=True)
         self._apply_case_state_to_ui()
         state = self._current_state()
-        state["compute_status"] = f"Starting {case.display_name} compute stage..."
+        state["compute_status"] = f"Starting {case.display_name} Compute Stage..."
         self.compute_status_label.setText(state["compute_status"])
         self._start_worker("compute", effective_params, case, run_profile, scan_cases)
 
@@ -2620,21 +2620,21 @@ class MainWindow(QMainWindow):
     def open_in_paraview(self):
         latest_vtk = self._current_state()["latest_vtk_path"]
         if not self.paraview_executable:
-            QMessageBox.warning(self, "ParaView unavailable", "The `paraview` executable was not found in PATH.")
+            QMessageBox.warning(self, "ParaView Unavailable", "The `paraview` Executable Was Not Found In PATH.")
             return
         if not latest_vtk or not Path(latest_vtk).exists():
-            QMessageBox.warning(self, "VTK unavailable", "No VTK file is available for the current case.")
+            QMessageBox.warning(self, "VTK Unavailable", "No VTK File Is Available For The Current Case.")
             return
         try:
             subprocess.Popen([self.paraview_executable, latest_vtk], cwd=str(REPO_ROOT))
         except Exception as exc:
-            QMessageBox.critical(self, "ParaView launch failed", str(exc))
+            QMessageBox.critical(self, "ParaView Launch Failed", str(exc))
 
     def export_results(self):
         state = self._current_state()
         manifest = state["manifest"]
         if manifest is None:
-            QMessageBox.warning(self, "No results", "No result files are available to export for the current case.")
+            QMessageBox.warning(self, "No Results", "No Result Files Are Available To Export For The Current Case.")
             return
 
         target_dir = QFileDialog.getExistingDirectory(self, "Select Output Folder", str(REPO_ROOT))
@@ -2653,7 +2653,7 @@ class MainWindow(QMainWindow):
                 for path in visual_paths:
                     if path.exists():
                         shutil.copy2(path, export_root / path.name)
-            QMessageBox.information(self, "Results saved", f"Saved run bundle to {destination}.")
+            QMessageBox.information(self, "Results Saved", f"Saved Run Bundle To {destination}.")
             return
 
         copied_count = 0
@@ -2665,7 +2665,7 @@ class MainWindow(QMainWindow):
             shutil.copy2(state["manifest_path"], target_path / Path(state["manifest_path"]).name)
             copied_count += 1
 
-        QMessageBox.information(self, "Results saved", f"Saved {copied_count} payload(s) to {target_path}.")
+        QMessageBox.information(self, "Results Saved", f"Saved {copied_count} Payload(s) To {target_path}.")
 
     def _build_manifest_after_run(self, case):
         perform_export = bool(case.visual_exporter)
@@ -2688,7 +2688,7 @@ class MainWindow(QMainWindow):
         if STOP_FLAG.exists():
             STOP_FLAG.unlink()
 
-        was_stopped = message == "Stopped by user."
+        was_stopped = message == "Stopped By User."
         case = CASE_DEFINITIONS[case_id]
         state = self.case_states[case_id]
 
@@ -2697,7 +2697,7 @@ class MainWindow(QMainWindow):
             if manifest is not None and manifest_path is not None:
                 self._apply_manifest_to_state(case_id, manifest_path, manifest)
             if run_mode == "mesh":
-                state["mesh_status"] = "Mesh ready."
+                state["mesh_status"] = "Mesh Ready."
             else:
                 state["compute_completed"] = True
                 state["compute_status"] = message
@@ -2718,7 +2718,7 @@ class MainWindow(QMainWindow):
             self._set_idle_state()
 
         if not success:
-            QMessageBox.warning(self, "Run finished", message)
+            QMessageBox.warning(self, "Run Finished", message)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
