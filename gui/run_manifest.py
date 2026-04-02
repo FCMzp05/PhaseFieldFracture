@@ -27,6 +27,7 @@ class RunManifest:
     exported_visual_paths: Dict[str, str] = field(default_factory=dict)
     damage_paths: List[str] = field(default_factory=list)
     displacement_paths: List[str] = field(default_factory=list)
+    von_mises_paths: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, object]:
@@ -53,6 +54,7 @@ class RunManifest:
             exported_visual_paths={str(k): str(v) for k, v in dict(payload.get("exported_visual_paths", {})).items()},
             damage_paths=_string_list(payload.get("damage_paths", [])),
             displacement_paths=_string_list(payload.get("displacement_paths", [])),
+            von_mises_paths=_string_list(payload.get("von_mises_paths", [])),
             notes=_string_list(payload.get("notes", [])),
         )
 
@@ -101,6 +103,7 @@ def manifest_file_payloads(manifest: RunManifest) -> List[Path]:
         manifest.curve_csv_paths,
         manifest.damage_paths,
         manifest.displacement_paths,
+        manifest.von_mises_paths,
     ):
         files.extend(Path(path) for path in bucket)
     files.extend(Path(path) for path in manifest.exported_visual_paths.values())

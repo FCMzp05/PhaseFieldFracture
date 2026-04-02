@@ -76,7 +76,7 @@ class GuiPostprocessTests(unittest.TestCase):
     def _view_names(self):
         return [self.window.postprocess_view_combo.itemText(index) for index in range(self.window.postprocess_view_combo.count())]
 
-    def _write_postprocess_manifest(self, case_id: str, *, damage_frames: int = 0, displacement_frames: int = 0):
+    def _write_postprocess_manifest(self, case_id: str, *, damage_frames: int = 0, displacement_frames: int = 0, vtk_frames: int = 0):
         native_dir = self.temp_path / f"{case_id}_native"
         native_dir.mkdir(parents=True, exist_ok=True)
 
@@ -104,6 +104,12 @@ class GuiPostprocessTests(unittest.TestCase):
             self.assertTrue(image.save(str(displacement_frame_path)))
             displacement_paths.append(str(displacement_frame_path))
 
+        vtk_paths = []
+        for frame_index in range(1, vtk_frames + 1):
+            vtk_path = native_dir / f"result_SENT_{frame_index:04d}.vtu"
+            vtk_path.write_text("vtk", encoding="utf-8")
+            vtk_paths.append(str(vtk_path))
+
         for image_path, color in (
             (mesh_png, QColor("#e2ebf4")),
             (damage_png, QColor("#f6d9d6")),
@@ -127,11 +133,18 @@ class GuiPostprocessTests(unittest.TestCase):
             native_output_dir=str(native_dir),
             mesh_paths=[str(mesh_msh), str(mesh_png)],
             snapshot_paths=snapshot_paths,
+            vtk_paths=vtk_paths,
             curve_csv_paths=[str(curve_csv)],
             damage_paths=[str(damage_png)],
             displacement_paths=displacement_paths + [str(displacement_png)],
         )
         write_manifest(self.manifest_dir / f"{case_id}_latest.json", manifest)
+
+    def test_protocol_case_exposes_von_mises_view_when_vtk_exists(self):
+        self._write_postprocess_manifest("sent_tension", vtk_frames=2)
+        self._open_window()
+        self._select_case("sent_tension")
+        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Displacement", "Von Mises", "Curve", "Visual Export"])
 
     def test_julia_env_resolution_follows_active_conda_env(self):
         fake_prefix = self.temp_path / "envs" / "gui_envs"
@@ -411,7 +424,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self.window.postprocess_view_combo.setCurrentText("Damage")
         self._flush_events()
 
-        self.assertTrue(self.window.postprocess_timeline_row.isVisible())
+        self.assertTrue(self.window.postprocess_timeline_stack.isVisible())
         self.assertEqual(self.window.postprocess_timeline_slider.maximum(), 3)
         self.assertIn("Frame 4/4", self.window.postprocess_timeline_value_label.text())
 
@@ -421,6 +434,49 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertEqual(self.window.history_combo.currentIndex(), 1)
         self.assertTrue(str(self.window.history_combo.currentData()).endswith("snap_SENT_0002.png"))
         self.assertIn("snap_SENT_0002.png", self.window.postprocess_detail_label.text())
+
+    def test_postprocess_von_mises_timeline_slider_tracks_generated_frames(self):
+        self._write_postprocess_manifest("sent_tension", vtk_frames=3)
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
+        self.window.tabs.setCurrentIndex(self.window.post_tab_index)
+
+        vm_paths = []
+        for frame_index in range(1, 4):
+            image_path = self.temp_path / f"von_mises_{frame_index:04d}.png"
+            image = QImage(640, 480, QImage.Format_RGB32)
+            image.fill(QColor("#f7e2cc"))
+            self.assertTrue(image.save(str(image_path)))
+            vm_paths.append(image_path)
+
+        with mock.patch.object(self.window, "_ensure_von_mises_history", return_value=vm_paths):
+            self.window.postprocess_view_combo.setCurrentText("Von Mises")
+            self._flush_events()
+
+            self.assertTrue(self.window.postprocess_timeline_stack.isVisible())
+            self.assertEqual(self.window.postprocess_timeline_slider.maximum(), 2)
+            self.assertIn("Frame 3/3", self.window.postprocess_timeline_value_label.text())
+
+            self.window.postprocess_timeline_slider.setValue(1)
+            self._flush_events()
+
+            self.assertEqual(self.window.history_combo.currentIndex(), 1)
+            self.assertTrue(str(self.window.history_combo.currentData()).endswith("von_mises_0002.png"))
+            self.assertIn("von_mises_0002.png", self.window.postprocess_detail_label.text())
+
+    def test_mesh_view_does_not_show_postprocess_timeline(self):
+        self._write_postprocess_manifest("sent_tension")
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
+        self.window.tabs.setCurrentIndex(self.window.post_tab_index)
+        self.window.postprocess_view_combo.setCurrentText("Mesh")
+        self._flush_events()
+
+        self.assertFalse(self.window.postprocess_timeline_stack.isVisible())
 
     def test_postprocess_tab_stays_scrollable_in_compact_window(self):
         self._open_window()
@@ -468,7 +524,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertLess(self.window.postprocess_label.minimumHeight(), damage_min_height)
         self.assertFalse(self.window.vtk_label.isVisible())
         self.assertEqual(self.window.postprocess_detail_label.text(), f"Visual Export: {export_path.name}")
-        self.assertFalse(self.window.postprocess_timeline_row.isVisible())
+        self.assertFalse(self.window.postprocess_timeline_stack.isVisible())
 
     def test_protocol_visual_export_adds_displacement_panel(self):
         native_dir = self.temp_path / "sent_native"

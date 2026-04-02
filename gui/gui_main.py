@@ -217,6 +217,10 @@ def displacement_final_name(protocol_case_name: str) -> str:
     return f"u_mag_final_{protocol_case_name}.png"
 
 
+def von_mises_final_name(protocol_case_name: str) -> str:
+    return f"von_mises_final_{protocol_case_name}.png"
+
+
 def result_prefix(protocol_case_name: str) -> str:
     return f"result_{protocol_case_name}_"
 
@@ -262,6 +266,18 @@ def first_existing(*paths: Path) -> Path | None:
 def extract_numeric_suffix(path_like: str | Path) -> int | None:
     match = re.search(r"(\d+)(?=\.[^.]+$)", Path(path_like).name)
     return int(match.group(1)) if match else None
+
+
+def load_runtime_param_map(runtime_params_path: Path | None) -> dict[str, object]:
+    if runtime_params_path is None or not runtime_params_path.exists():
+        return {}
+    try:
+        payload = json.loads(runtime_params_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if isinstance(payload, dict) and isinstance(payload.get("params"), dict):
+        return dict(payload["params"])
+    return dict(payload) if isinstance(payload, dict) else {}
 
 
 def sorted_existing(paths):
@@ -1056,6 +1072,8 @@ class MainWindow(QMainWindow):
             "latest_damage_path": None,
             "latest_displacement_path": None,
             "latest_vtk_path": "",
+            "von_mises_paths": [],
+            "von_mises_cache_run_id": None,
             "visual_export_paths": {},
             "log_lines": [],
             "history_selection": {view_name: None for view_name in POSTPROCESS_VIEWS},
@@ -1473,8 +1491,54 @@ class MainWindow(QMainWindow):
 
         self.history_combo = QComboBox()
         self.history_combo.currentIndexChanged.connect(self.on_history_changed)
-        self.postprocess_history_stack = self._build_control_stack("History", self.history_combo)
-        controls_row.addWidget(self.postprocess_history_stack, stretch=1)
+        self.history_combo.hide()
+        self.postprocess_timeline_stack = QWidget()
+        postprocess_timeline_stack_layout = QVBoxLayout(self.postprocess_timeline_stack)
+        postprocess_timeline_stack_layout.setContentsMargins(0, 0, 0, 0)
+        postprocess_timeline_stack_layout.setSpacing(6)
+        self.postprocess_timeline_caption = self._create_control_label("Timeline")
+        postprocess_timeline_stack_layout.addWidget(self.postprocess_timeline_caption)
+        self.postprocess_timeline_bar = QWidget()
+        postprocess_timeline_layout = QHBoxLayout(self.postprocess_timeline_bar)
+        postprocess_timeline_layout.setContentsMargins(0, 0, 0, 0)
+        postprocess_timeline_layout.setSpacing(10)
+        self.postprocess_timeline_slider = QSlider(Qt.Horizontal)
+        self.postprocess_timeline_slider.setMinimum(0)
+        self.postprocess_timeline_slider.setMaximum(0)
+        self.postprocess_timeline_slider.setSingleStep(1)
+        self.postprocess_timeline_slider.setPageStep(1)
+        self.postprocess_timeline_slider.setTracking(True)
+        self.postprocess_timeline_slider.setMinimumWidth(280)
+        self.postprocess_timeline_slider.setFixedHeight(30)
+        self.postprocess_timeline_slider.setStyleSheet(
+            """
+            QSlider::groove:horizontal {
+                height: 10px;
+                border-radius: 5px;
+                background: #ced8e3;
+            }
+            QSlider::sub-page:horizontal {
+                background: #8fb4d8;
+                border-radius: 5px;
+            }
+            QSlider::handle:horizontal {
+                width: 22px;
+                margin: -7px 0;
+                border-radius: 11px;
+                background: #295b8c;
+            }
+            """
+        )
+        self.postprocess_timeline_slider.valueChanged.connect(self.on_postprocess_timeline_changed)
+        self.postprocess_timeline_value_label = QLabel("Frame 1 / 1")
+        self.postprocess_timeline_value_label.setObjectName("MetaCard")
+        self.postprocess_timeline_value_label.setMinimumWidth(220)
+        self.postprocess_timeline_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        postprocess_timeline_layout.addWidget(self.postprocess_timeline_slider, stretch=1)
+        postprocess_timeline_layout.addWidget(self.postprocess_timeline_value_label)
+        postprocess_timeline_stack_layout.addWidget(self.postprocess_timeline_bar)
+        self.postprocess_timeline_stack.hide()
+        controls_row.addWidget(self.postprocess_timeline_stack, stretch=1)
         toolbar_layout.addLayout(controls_row)
 
         action_row = QHBoxLayout()
@@ -1497,28 +1561,6 @@ class MainWindow(QMainWindow):
         postprocess_image_layout.setSpacing(10)
         self.postprocess_label = self._create_image_viewer("Post-process output will appear here.", fixed_fit=True)
         postprocess_image_layout.addWidget(self.postprocess_label, stretch=1)
-        self.postprocess_timeline_row = QWidget()
-        postprocess_timeline_layout = QHBoxLayout(self.postprocess_timeline_row)
-        postprocess_timeline_layout.setContentsMargins(0, 0, 0, 0)
-        postprocess_timeline_layout.setSpacing(10)
-        self.postprocess_timeline_title = QLabel("Timeline")
-        self.postprocess_timeline_title.setObjectName("ControlLabel")
-        self.postprocess_timeline_slider = QSlider(Qt.Horizontal)
-        self.postprocess_timeline_slider.setMinimum(0)
-        self.postprocess_timeline_slider.setMaximum(0)
-        self.postprocess_timeline_slider.setSingleStep(1)
-        self.postprocess_timeline_slider.setPageStep(1)
-        self.postprocess_timeline_slider.setTracking(True)
-        self.postprocess_timeline_slider.valueChanged.connect(self.on_postprocess_timeline_changed)
-        self.postprocess_timeline_value_label = QLabel("Frame 1 / 1")
-        self.postprocess_timeline_value_label.setObjectName("MetaCard")
-        self.postprocess_timeline_value_label.setMinimumWidth(180)
-        self.postprocess_timeline_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        postprocess_timeline_layout.addWidget(self.postprocess_timeline_title)
-        postprocess_timeline_layout.addWidget(self.postprocess_timeline_slider, stretch=1)
-        postprocess_timeline_layout.addWidget(self.postprocess_timeline_value_label)
-        self.postprocess_timeline_row.hide()
-        postprocess_image_layout.addWidget(self.postprocess_timeline_row)
         self.postprocess_curve_canvas = CurveCanvas()
         self.postprocess_curve_canvas.setObjectName("CurveCanvas")
         self.postprocess_curve_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -2912,6 +2954,8 @@ class MainWindow(QMainWindow):
         state["latest_damage_path"] = self._last_file(manifest.damage_paths or manifest.snapshot_paths, suffix=".png")
         state["latest_displacement_path"] = self._last_file(manifest.displacement_paths, suffix=".png")
         state["latest_vtk_path"] = str(self._last_file(manifest.vtk_paths, suffix=".vtu") or "")
+        state["von_mises_paths"] = []
+        state["von_mises_cache_run_id"] = None
         state["visual_export_paths"] = dict(manifest.exported_visual_paths)
         state["compute_completed"] = bool(
             manifest.snapshot_paths or manifest.curve_csv_paths or manifest.vtk_paths or manifest.exported_visual_paths
@@ -2927,6 +2971,7 @@ class MainWindow(QMainWindow):
         state["history_selection"]["Displacement"] = (
             str(state["latest_displacement_path"]) if state["latest_displacement_path"] else None
         )
+        state["history_selection"]["Von Mises"] = None
         summary_csv = self._summary_csv_path(case_id)
         state["history_selection"]["Summary Table"] = str(summary_csv) if summary_csv else None
         state["history_selection"]["Comparison Curve"] = None
@@ -2941,6 +2986,8 @@ class MainWindow(QMainWindow):
         has_displacement = bool(state["latest_displacement_path"]) or bool(manifest and manifest.displacement_paths)
         if case.result_profile.startswith("protocol_") or has_displacement:
             views.append("Displacement")
+        if case.result_profile.startswith("protocol_") and bool(manifest and manifest.vtk_paths):
+            views.append("Von Mises")
         if len(case.curve_columns) == 2:
             views.append("Curve")
         if case.scan_editor_kind:
@@ -3281,6 +3328,9 @@ class MainWindow(QMainWindow):
     def _displacement_placeholder(self):
         return "Run compute to view the displacement contour."
 
+    def _von_mises_placeholder(self):
+        return "Run compute to view the Von Mises contour."
+
     def _visual_placeholder(self):
         return "Exported visual panels will appear here."
 
@@ -3343,26 +3393,25 @@ class MainWindow(QMainWindow):
             animate=False,
         )
 
-    def _timeline_views(self):
-        return {"Damage", "Displacement"}
-
-    def _timeline_label_text(self, path: Path, frame_index: int, frame_count: int):
+    def _timeline_label_text(self, view_name: str, path: Path, frame_index: int, frame_count: int):
         step_value = extract_numeric_suffix(path)
-        if step_value is None:
-            return f"Frame {frame_index + 1}/{frame_count} | {path.name}"
-        return f"Frame {frame_index + 1}/{frame_count} | Step {step_value}"
+        if view_name in {"Damage", "Displacement", "Von Mises"} and step_value is not None:
+            return f"Frame {frame_index + 1}/{frame_count} | Step {step_value}"
+        if frame_count <= 1:
+            return path.name
+        return f"Item {frame_index + 1}/{frame_count} | {path.name}"
 
     def _sync_postprocess_timeline(self, view_name: str, paths, selected_path: Path | None):
-        timeline_enabled = view_name in self._timeline_views() and len(paths) > 1
         self._postprocess_timeline_paths = [str(path) for path in paths]
-        if not timeline_enabled:
+        if view_name not in {"Damage", "Displacement", "Von Mises"} or not self._postprocess_timeline_paths:
             self._syncing_postprocess_timeline = True
             self.postprocess_timeline_slider.setMinimum(0)
             self.postprocess_timeline_slider.setMaximum(0)
             self.postprocess_timeline_slider.setValue(0)
+            self.postprocess_timeline_slider.setEnabled(False)
             self._syncing_postprocess_timeline = False
             self.postprocess_timeline_value_label.setText("Frame 1 / 1")
-            self.postprocess_timeline_row.hide()
+            self.postprocess_timeline_stack.hide()
             return
 
         selected_path_str = str(selected_path) if selected_path is not None else self._postprocess_timeline_paths[-1]
@@ -3372,15 +3421,21 @@ class MainWindow(QMainWindow):
             selected_index = len(self._postprocess_timeline_paths) - 1
 
         self._syncing_postprocess_timeline = True
-        self.postprocess_timeline_title.setText(f"{view_name} Timeline")
+        self.postprocess_timeline_caption.setText(f"{view_name} Timeline")
         self.postprocess_timeline_slider.setRange(0, len(self._postprocess_timeline_paths) - 1)
         self.postprocess_timeline_slider.setPageStep(max(1, len(self._postprocess_timeline_paths) // 8))
         self.postprocess_timeline_slider.setValue(selected_index)
+        self.postprocess_timeline_slider.setEnabled(len(self._postprocess_timeline_paths) > 1)
         self._syncing_postprocess_timeline = False
         self.postprocess_timeline_value_label.setText(
-            self._timeline_label_text(Path(self._postprocess_timeline_paths[selected_index]), selected_index, len(self._postprocess_timeline_paths))
+            self._timeline_label_text(
+                view_name,
+                Path(self._postprocess_timeline_paths[selected_index]),
+                selected_index,
+                len(self._postprocess_timeline_paths),
+            )
         )
-        self.postprocess_timeline_row.show()
+        self.postprocess_timeline_stack.show()
 
     def _render_postprocess_view(self, view_name: str, selected_path: str | None):
         if view_name == "Curve":
@@ -3428,6 +3483,12 @@ class MainWindow(QMainWindow):
         if view_name == "Displacement":
             path = self.history_combo.currentData()
             return (Path(path), self._displacement_placeholder()) if path else (state["latest_displacement_path"], self._displacement_placeholder())
+        if view_name == "Von Mises":
+            path = self.history_combo.currentData()
+            if path:
+                return Path(path), self._von_mises_placeholder()
+            paths = self._history_paths_for_case(self.current_case, view_name)
+            return (paths[-1], self._von_mises_placeholder()) if paths else (None, self._von_mises_placeholder())
         if view_name == "Visual Export":
             path = self.history_combo.currentData()
             return (Path(path), self._visual_placeholder()) if path else (None, self._visual_placeholder())
@@ -3444,18 +3505,230 @@ class MainWindow(QMainWindow):
             return "Comparison curves will appear here."
         if view_name == "Visual Export" and selected_path:
             return f"Visual Export: {Path(selected_path).name}"
+        if view_name == "Von Mises" and selected_path:
+            return f"Von Mises: {Path(selected_path).name}"
         if selected_path:
             return f"{view_name}: {selected_path}"
         placeholders = {
             "Mesh": self._mesh_placeholder(),
             "Damage": self._damage_placeholder(),
             "Displacement": self._displacement_placeholder(),
+            "Von Mises": self._von_mises_placeholder(),
             "Curve": "Curve data will appear here.",
             "Summary Table": "Scan summary table will appear here.",
             "Comparison Curve": "Comparison curves will appear here.",
             "Visual Export": self._visual_placeholder(),
         }
         return placeholders.get(view_name, "Post-process output will appear here.")
+
+    def _von_mises_cache_dir(self, case_id: str) -> Path | None:
+        state = self.case_states[case_id]
+        run_dir_value = state.get("run_dir")
+        if not run_dir_value:
+            return None
+        return Path(run_dir_value) / "postprocess_cache" / "von_mises"
+
+    def _ensure_von_mises_history(self, case_id: str):
+        state = self.case_states[case_id]
+        manifest = state["manifest"]
+        case = CASE_DEFINITIONS[case_id]
+        if manifest is None or not manifest.vtk_paths or not case.result_profile.startswith("protocol_"):
+            return []
+
+        vtk_paths = [Path(path) for path in manifest.vtk_paths if Path(path).exists()]
+        if not vtk_paths:
+            return []
+
+        cached_paths = [Path(path) for path in state.get("von_mises_paths", []) if Path(path).exists()]
+        if state.get("von_mises_cache_run_id") == manifest.run_id and len(cached_paths) == len(vtk_paths):
+            return cached_paths
+
+        cache_dir = self._von_mises_cache_dir(case_id)
+        if cache_dir is None:
+            return []
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        expected_paths = [cache_dir / f"von_mises_{vtk_path.stem}.png" for vtk_path in vtk_paths]
+        if all(path.exists() for path in expected_paths):
+            state["von_mises_paths"] = [str(path) for path in expected_paths]
+            state["von_mises_cache_run_id"] = manifest.run_id
+            return expected_paths
+
+        import meshio
+        import numpy as np
+        import matplotlib.tri as mtri
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+
+        params = load_runtime_param_map(Path(manifest.runtime_params_path) if manifest.runtime_params_path else None)
+        young_modulus = float(params.get("E", 210950.0))
+        poisson_ratio = float(params.get("nu", 0.3))
+
+        def triangle_block(mesh):
+            for block_index, cell_block in enumerate(mesh.cells):
+                if cell_block.type in {"triangle", "triangle6"}:
+                    cells = np.asarray(cell_block.data, dtype=int)
+                    if cells.ndim == 2 and cells.shape[1] >= 3:
+                        return block_index, cells[:, :3]
+            raise KeyError("No triangle cells found in mesh.")
+
+        def merged_points_and_cells(coords: np.ndarray, cells: np.ndarray, tol: float = 1.0e-10):
+            quantized = np.round(coords / tol).astype(np.int64)
+            representative_by_key: dict[tuple[int, int], int] = {}
+            remap = np.empty(len(coords), dtype=int)
+            for index, key in enumerate(quantized):
+                tuple_key = (int(key[0]), int(key[1]))
+                representative = representative_by_key.setdefault(tuple_key, index)
+                remap[index] = representative
+            unique_ids, inverse = np.unique(remap, return_inverse=True)
+            merged_coords = coords[unique_ids]
+            merged_cells = inverse[cells]
+            merged_cells = np.asarray(
+                [tri for tri in merged_cells if len({int(tri[0]), int(tri[1]), int(tri[2])}) == 3],
+                dtype=int,
+            )
+            return merged_coords, merged_cells, inverse
+
+        def merge_point_values(values: np.ndarray, inverse: np.ndarray, merged_size: int):
+            values_2d = values if values.ndim == 2 else values[:, None]
+            merged_values = np.zeros((merged_size, values_2d.shape[1]), dtype=float)
+            counts = np.zeros(merged_size, dtype=float)
+            np.add.at(merged_values, inverse, values_2d)
+            np.add.at(counts, inverse, 1.0)
+            merged_values /= np.maximum(counts[:, None], 1.0)
+            return merged_values
+
+        def field_to_points(mesh, name: str):
+            if name in mesh.point_data:
+                values = np.asarray(mesh.point_data[name], dtype=float)
+                raw_values = values if values.ndim == 2 else values[:, None]
+            else:
+                block_index, cells = triangle_block(mesh)
+                if name not in mesh.cell_data or block_index >= len(mesh.cell_data[name]):
+                    raise KeyError(f"Field '{name}' not found in mesh.")
+                values = np.asarray(mesh.cell_data[name][block_index], dtype=float)
+                values_2d = values if values.ndim == 2 else values[:, None]
+                raw_values = np.zeros((len(mesh.points), values_2d.shape[1]), dtype=float)
+                weights = np.zeros(len(mesh.points), dtype=float)
+                for local_node in range(3):
+                    np.add.at(raw_values, cells[:, local_node], values_2d)
+                    np.add.at(weights, cells[:, local_node], 1.0)
+                raw_values /= np.maximum(weights[:, None], 1.0)
+            coords = np.asarray(mesh.points[:, :2], dtype=float)
+            _, cells = triangle_block(mesh)
+            merged_coords, _, inverse = merged_points_and_cells(coords, cells)
+            return merge_point_values(raw_values, inverse, len(merged_coords))
+
+        def scalar_field(mesh, name: str):
+            values = field_to_points(mesh, name)
+            if values.shape[1] != 1:
+                raise ValueError(f"Field '{name}' is not scalar.")
+            return values[:, 0]
+
+        def vector_field(mesh, name: str, min_cols: int = 2):
+            values = field_to_points(mesh, name)
+            if values.shape[1] < min_cols:
+                raise ValueError(f"Field '{name}' does not have {min_cols} components.")
+            return values[:, :min_cols]
+
+        def triangulation(mesh):
+            raw_points = np.asarray(mesh.points[:, :2], dtype=float)
+            _, raw_cells = triangle_block(mesh)
+            points, cells, _ = merged_points_and_cells(raw_points, raw_cells)
+            if len(cells) == 0:
+                raise ValueError("No triangles remain after merging.")
+            tri = mtri.Triangulation(points[:, 0], points[:, 1], triangles=cells)
+            return points, cells, tri
+
+        def rounded_percentile_max(values, percentile: float, *, floor: float = 0.0, round_to: float | None = None):
+            array = np.asarray(values, dtype=float).ravel()
+            array = array[np.isfinite(array) & (array > floor)]
+            base_value = float(np.percentile(array, percentile)) if array.size else 1.0
+            if round_to is not None and round_to > 0.0:
+                base_value = float(np.ceil(base_value / round_to) * round_to)
+            return max(base_value, 1.0e-6)
+
+        def compute_protocol_von_mises(points, cells, displacement, damage, young_modulus, poisson_ratio):
+            lam = young_modulus * poisson_ratio / ((1.0 + poisson_ratio) * (1.0 - 2.0 * poisson_ratio))
+            shear = young_modulus / (2.0 * (1.0 + poisson_ratio))
+            p1 = points[cells[:, 0]]
+            p2 = points[cells[:, 1]]
+            p3 = points[cells[:, 2]]
+            u1 = displacement[cells[:, 0]]
+            u2 = displacement[cells[:, 1]]
+            u3 = displacement[cells[:, 2]]
+            twice_area = (p2[:, 0] - p1[:, 0]) * (p3[:, 1] - p1[:, 1]) - (p3[:, 0] - p1[:, 0]) * (p2[:, 1] - p1[:, 1])
+            twice_area = np.where(np.abs(twice_area) < 1.0e-14, np.sign(twice_area) * 1.0e-14 + 1.0e-14, twice_area)
+            d_n1_dx = (p2[:, 1] - p3[:, 1]) / twice_area
+            d_n1_dy = (p3[:, 0] - p2[:, 0]) / twice_area
+            d_n2_dx = (p3[:, 1] - p1[:, 1]) / twice_area
+            d_n2_dy = (p1[:, 0] - p3[:, 0]) / twice_area
+            d_n3_dx = (p1[:, 1] - p2[:, 1]) / twice_area
+            d_n3_dy = (p2[:, 0] - p1[:, 0]) / twice_area
+            exx = u1[:, 0] * d_n1_dx + u2[:, 0] * d_n2_dx + u3[:, 0] * d_n3_dx
+            eyy = u1[:, 1] * d_n1_dy + u2[:, 1] * d_n2_dy + u3[:, 1] * d_n3_dy
+            exy = 0.5 * (
+                u1[:, 0] * d_n1_dy + u2[:, 0] * d_n2_dy + u3[:, 0] * d_n3_dy
+                + u1[:, 1] * d_n1_dx + u2[:, 1] * d_n2_dx + u3[:, 1] * d_n3_dx
+            )
+            trace = exx + eyy
+            s_xx = lam * trace + 2.0 * shear * exx
+            s_yy = lam * trace + 2.0 * shear * eyy
+            s_zz = lam * trace
+            s_xy = 2.0 * shear * exy
+            sigma_vm = np.sqrt(
+                0.5 * ((s_xx - s_yy) ** 2 + (s_yy - s_zz) ** 2 + (s_zz - s_xx) ** 2) + 3.0 * s_xy**2
+            )
+            damage_cell = damage[cells].mean(axis=1)
+            degraded_sigma = np.clip((1.0 - damage_cell) ** 2, 0.0, 1.0) * sigma_vm
+            area = 0.5 * np.abs(twice_area)
+            weighted = np.zeros(len(points), dtype=float)
+            weights = np.zeros(len(points), dtype=float)
+            for local_node in range(3):
+                np.add.at(weighted, cells[:, local_node], degraded_sigma * area)
+                np.add.at(weights, cells[:, local_node], area)
+            return weighted / np.maximum(weights, 1.0e-30)
+
+        snapshots: list[dict[str, object]] = []
+        for vtk_path, image_path in zip(vtk_paths, expected_paths):
+            mesh = meshio.read(vtk_path)
+            points, cells, tri = triangulation(mesh)
+            damage = scalar_field(mesh, "d")
+            displacement = vector_field(mesh, "uh", 2)
+            sigma_vm = compute_protocol_von_mises(points, cells, displacement, damage, young_modulus, poisson_ratio)
+            snapshots.append({"tri": tri, "sigma_vm": sigma_vm, "image_path": image_path})
+
+        stress_max = rounded_percentile_max(
+            np.concatenate([np.asarray(item["sigma_vm"], dtype=float) for item in snapshots]),
+            98.0,
+            floor=10.0,
+            round_to=200.0,
+        )
+        norm = mpl.colors.Normalize(0.0, stress_max)
+        cmap = mpl.cm.get_cmap("plasma")
+
+        for snapshot in snapshots:
+            figure = Figure(figsize=(7.0, 5.6), dpi=180, facecolor="white")
+            FigureCanvasAgg(figure)
+            ax = figure.add_subplot(111)
+            ax.tripcolor(snapshot["tri"], snapshot["sigma_vm"], cmap=cmap, norm=norm, shading="gouraud", rasterized=True)
+            ax.set_aspect("equal")
+            ax.axis("off")
+            colorbar = figure.colorbar(
+                mpl.cm.ScalarMappable(norm=norm, cmap=cmap),
+                ax=ax,
+                orientation="horizontal",
+                fraction=0.05,
+                pad=0.05,
+            )
+            colorbar.set_label("MPa", fontsize=12, labelpad=4)
+            colorbar.ax.tick_params(labelsize=10)
+            figure.subplots_adjust(left=0.04, right=0.98, bottom=0.12, top=0.98)
+            figure.savefig(snapshot["image_path"], bbox_inches="tight")
+
+        state["von_mises_paths"] = [str(path) for path in expected_paths]
+        state["von_mises_cache_run_id"] = manifest.run_id
+        return expected_paths
 
     def _history_paths_for_case(self, case_id: str, view_name: str):
         state = self.case_states[case_id]
@@ -3476,6 +3749,8 @@ class MainWindow(QMainWindow):
             if latest_displacement and latest_displacement not in paths:
                 paths.append(latest_displacement)
             return [path for path in paths if path.exists()]
+        if view_name == "Von Mises":
+            return self._ensure_von_mises_history(case_id)
         if view_name == "Curve":
             return [Path(path) for path in manifest.curve_csv_paths if Path(path).exists()]
         if view_name == "Summary Table":
@@ -3630,7 +3905,12 @@ class MainWindow(QMainWindow):
             return
         if 0 <= frame_index < len(self._postprocess_timeline_paths):
             self.postprocess_timeline_value_label.setText(
-                self._timeline_label_text(Path(self._postprocess_timeline_paths[frame_index]), frame_index, len(self._postprocess_timeline_paths))
+                self._timeline_label_text(
+                    self.postprocess_view_combo.currentText(),
+                    Path(self._postprocess_timeline_paths[frame_index]),
+                    frame_index,
+                    len(self._postprocess_timeline_paths),
+                )
             )
 
     def append_log(self, text: str):
@@ -3786,6 +4066,8 @@ class MainWindow(QMainWindow):
         state["latest_damage_path"] = None
         state["latest_displacement_path"] = None
         state["latest_vtk_path"] = ""
+        state["von_mises_paths"] = []
+        state["von_mises_cache_run_id"] = None
         state["visual_export_paths"] = {}
         state["manifest"] = None
         state["manifest_path"] = None
@@ -3794,6 +4076,7 @@ class MainWindow(QMainWindow):
         state["runtime_params_path"] = None
         state["history_selection"]["Damage"] = None
         state["history_selection"]["Displacement"] = None
+        state["history_selection"]["Von Mises"] = None
         state["history_selection"]["Summary Table"] = None
         state["history_selection"]["Comparison Curve"] = None
         state["history_selection"]["Visual Export"] = None

@@ -449,7 +449,7 @@ INT_FIELDS = frozenset(
     }
 )
 BOOL_FIELDS = frozenset({"ENABLE_PNG"})
-POSTPROCESS_VIEWS = ("Mesh", "Damage", "Displacement", "Curve", "Summary Table", "Comparison Curve", "Visual Export")
+POSTPROCESS_VIEWS = ("Mesh", "Damage", "Displacement", "Von Mises", "Curve", "Summary Table", "Comparison Curve", "Visual Export")
 SCAN_EDITOR_SPECS: Mapping[str, Tuple[ScanColumnSpec, ...]] = {
     "offset_notch_scan": (
         ScanColumnSpec("label", "Label", "str"),
