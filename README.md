@@ -13,6 +13,9 @@ GUI 主入口是 [gui/gui_main.py](/home/dazhi_zhao/peng_pf_ui/gui/gui_main.py)�
 
 GUI 工作流固定为 `Mesh -> Compute -> Post-process`。参数面板按 `Geometry / Mesh / Material / Phase Field / Loading / Smoke` 分组；结果视图根据算例能力切换为 `Mesh`、`Damage`、`Displacement`、`Curve`、`Summary Table`、`Comparison Curve`、`Visual Export`。运行时会保存参数副本、结果清单、原始输出文件和导出图，方便回看最近一次结果，也方便后续脚本处理。
 
+当前进展：协议类 `Visual Export` 的默认 `field_panel` 已改为横向 `1x2` 汇总图，优先展示最终步的双场结果，减少 GUI 内纵向占高。  
+下一步：继续观察 `Visual Export` 在不同 case 和窗口尺寸下的标题、色标与留白稳定性。
+
 ## 环境
 
 - Python 环境名：`gui_envs`
