@@ -261,6 +261,10 @@ def sorted_existing(paths):
     return [path for path in sorted(paths) if path.exists()]
 
 
+def is_visual_export_view(view_name: str | None) -> bool:
+    return (view_name or "") == "Visual Export"
+
+
 def active_conda_prefix() -> Path | None:
     raw_prefix = os.environ.get("CONDA_PREFIX")
     if not raw_prefix:
@@ -1477,7 +1481,7 @@ class MainWindow(QMainWindow):
         self.postprocess_stack = QStackedWidget()
         self.postprocess_stack.setObjectName("PreviewSurface")
         self.postprocess_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.postprocess_label = self._create_image_viewer("Post-process output will appear here.", fixed_fit=True)
+        self.postprocess_label = self._create_image_viewer("Post-process output will appear here.")
         self.postprocess_curve_canvas = CurveCanvas()
         self.postprocess_curve_canvas.setObjectName("CurveCanvas")
         self.postprocess_curve_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -2300,7 +2304,11 @@ class MainWindow(QMainWindow):
         preview_min_height = 320 if stacked_main else 440
         compute_preview_min_height = 260 if stacked_main else 340
         curve_min_height = 180 if stacked_main else 210
-        postprocess_surface_min_height = 260 if compact_actions else preview_min_height
+        active_postprocess_view = self.postprocess_view_combo.currentText()
+        if is_visual_export_view(active_postprocess_view):
+            postprocess_surface_min_height = 180 if compact_actions else 230
+        else:
+            postprocess_surface_min_height = 260 if compact_actions else preview_min_height
         header_text_max_width = 16777215 if stacked_header else (880 if width < 1480 else 980)
         badge_min_width = 0 if stacked_header else (420 if width < 1480 else 470)
         self.mesh_preview_label.setMinimumHeight(preview_min_height)
@@ -3321,7 +3329,11 @@ class MainWindow(QMainWindow):
             image_path, placeholder = self._visible_image_path(view_name)
             self.postprocess_stack.setCurrentWidget(self.postprocess_label)
             self._set_label_image(self.postprocess_label, image_path, placeholder, animate=False)
-        self.postprocess_detail_label.setText(self._postprocess_detail_text(view_name, selected_path))
+        detail_text = self._postprocess_detail_text(view_name, selected_path)
+        self.postprocess_detail_label.setText(detail_text)
+        self.postprocess_detail_label.setToolTip(selected_path or detail_text)
+        self._update_postprocess_meta_cards(view_name)
+        self._apply_responsive_layout()
 
     def _visible_image_path(self, view_name: str):
         state = self._current_state()
@@ -3347,6 +3359,8 @@ class MainWindow(QMainWindow):
                 labels = ", ".join(item["label"] for item in series)
                 return f"Comparison Curve: {len(series)} Series [{labels}]"
             return "Comparison curves will appear here."
+        if view_name == "Visual Export" and selected_path:
+            return f"Visual Export: {Path(selected_path).name}"
         if selected_path:
             return f"{view_name}: {selected_path}"
         placeholders = {
@@ -3387,6 +3401,11 @@ class MainWindow(QMainWindow):
         if view_name == "Visual Export":
             return [Path(path) for path in state["visual_export_paths"].values() if Path(path).exists()]
         return []
+
+    def _update_postprocess_meta_cards(self, view_name: str):
+        latest_vtk = self._current_state()["latest_vtk_path"]
+        show_vtk = bool(latest_vtk) and not is_visual_export_view(view_name)
+        self.vtk_label.setVisible(show_vtk)
 
     def _refresh_history_combo(self, prefer_latest: bool):
         view_name = self.postprocess_view_combo.currentText()

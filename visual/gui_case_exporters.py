@@ -693,8 +693,6 @@ def _export_scan_panel(
             ax.add_patch(
                 Rectangle((0, 0), 1, 1, transform=ax.transAxes, fill=False, edgecolor=PANEL_BORDER_COLOR, linewidth=1.8, zorder=20)
             )
-            if row_index == 0 and col_titles is not None and col_index < len(col_titles):
-                ax.set_title(col_titles[col_index], fontsize=20, pad=7)
         position = axes[row_index][0].get_position()
         figure.text(left - 0.015, 0.5 * (position.y0 + position.y1), str(row["label"]), ha="right", va="center", rotation=90, fontsize=20)
 
@@ -724,17 +722,15 @@ def _protocol_curve_points(csv_path: Path, step_numbers: list[int | None], *, x_
         rows_by_step[step] = (x_value, y_value)
 
     markers: list[dict[str, object]] = []
-    marker_labels = ("A", "B", "C")
     marker_shapes = ("o", "s", "^")
     for index, step in enumerate(step_numbers):
-        if step is None or step not in rows_by_step or index >= len(marker_labels):
+        if step is None or step not in rows_by_step or index >= len(marker_shapes):
             continue
         marker_x, marker_y = rows_by_step[step]
         markers.append(
             {
                 "x": marker_x,
                 "y": marker_y,
-                "label": marker_labels[index],
                 "marker": marker_shapes[index],
                 "color": CURVE_COLORS[min(index, len(CURVE_COLORS) - 1)],
             }
@@ -1339,9 +1335,6 @@ def _export_sent_fatigue_main_panel(
                 Rectangle((0, 0), 1, 1, transform=ax.transAxes, fill=False, edgecolor=PANEL_BORDER_COLOR, linewidth=1.8, zorder=20)
             )
             ax.text(0.5, 0.92, str(snap.get("note") or ""), transform=ax.transAxes, ha="center", va="top", fontsize=16, color="white")
-            if row_index == 0 and col_index < len(column_titles):
-                ax.set_title(column_titles[col_index], fontsize=18, pad=6)
-
         position = axes[row_index][0].get_position()
         figure.text(left - 0.02, 0.5 * (position.y0 + position.y1), row_label, ha="right", va="center", rotation=90, fontsize=18)
         top_position = axes[row_index][-1].get_position()

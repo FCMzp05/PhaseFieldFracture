@@ -321,7 +321,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertFalse(isinstance(self.window.postprocess_stack.graphicsEffect(), QGraphicsOpacityEffect))
         self.assertIs(self.window.postprocess_stack.currentWidget(), self.window.postprocess_curve_canvas)
 
-    def test_postprocess_image_viewer_hides_internal_scrollbars_and_ignores_ctrl_wheel(self):
+    def test_postprocess_image_viewer_supports_ctrl_wheel_zoom(self):
         self._write_postprocess_manifest("sent_tension")
         self._open_window()
         self.window.resize(1280, 900)
@@ -334,10 +334,8 @@ class GuiPostprocessTests(unittest.TestCase):
         viewer = self.window.postprocess_label
         self.assertTrue(viewer.has_image())
         self._flush_events()
-        self.assertEqual(viewer.scroll_area.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
-        self.assertEqual(viewer.scroll_area.verticalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
-        self.assertFalse(viewer.scroll_area.horizontalScrollBar().isVisible())
-        self.assertFalse(viewer.scroll_area.verticalScrollBar().isVisible())
+        self.assertEqual(viewer.scroll_area.horizontalScrollBarPolicy(), Qt.ScrollBarAsNeeded)
+        self.assertEqual(viewer.scroll_area.verticalScrollBarPolicy(), Qt.ScrollBarAsNeeded)
 
         start_scale = viewer._current_scale_factor()
         wheel_event = QWheelEvent(
@@ -353,9 +351,9 @@ class GuiPostprocessTests(unittest.TestCase):
         QApplication.sendEvent(viewer.scroll_area.viewport(), wheel_event)
         self._flush_events()
 
-        self.assertEqual(viewer._current_scale_factor(), start_scale)
+        self.assertGreater(viewer._current_scale_factor(), start_scale)
 
-    def test_postprocess_image_viewer_ignores_keyboard_zoom_shortcuts(self):
+    def test_postprocess_image_viewer_supports_keyboard_zoom_shortcuts(self):
         self._write_postprocess_manifest("sent_tension")
         self._open_window()
         self.window.resize(1280, 900)
@@ -373,7 +371,8 @@ class GuiPostprocessTests(unittest.TestCase):
         fit_scale = viewer._current_scale_factor()
         QTest.keyClick(viewer, Qt.Key_Equal, Qt.ControlModifier)
         self._flush_events()
-        self.assertEqual(viewer._current_scale_factor(), fit_scale)
+        zoomed_scale = viewer._current_scale_factor()
+        self.assertGreater(zoomed_scale, fit_scale)
 
         QTest.keyClick(viewer, Qt.Key_0, Qt.ControlModifier)
         self._flush_events()
@@ -381,7 +380,7 @@ class GuiPostprocessTests(unittest.TestCase):
 
         QTest.keyClick(viewer, Qt.Key_1, Qt.ControlModifier)
         self._flush_events()
-        self.assertEqual(viewer._current_scale_factor(), fit_scale)
+        self.assertAlmostEqual(viewer._current_scale_factor(), 1.0, places=2)
 
     def test_postprocess_tab_stays_scrollable_in_compact_window(self):
         self._open_window()
@@ -394,6 +393,41 @@ class GuiPostprocessTests(unittest.TestCase):
         scrollbar = self.window.postprocess_scroll.verticalScrollBar()
         self.assertGreater(scrollbar.maximum(), 0)
         self.assertTrue(self.window.export_results_button.isVisible())
+
+    def test_visual_export_view_uses_more_compact_postprocess_layout(self):
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+
+        case_id = "sent_tension"
+        export_path = self.temp_path / "sent_visual_export.png"
+        image = QImage(1600, 900, QImage.Format_RGB32)
+        image.fill(QColor("#f0f4f8"))
+        self.assertTrue(image.save(str(export_path)))
+
+        vtk_path = self.temp_path / "latest_result.vtu"
+        vtk_path.write_text("vtk", encoding="utf-8")
+
+        state = self.window.case_states[case_id]
+        state["latest_vtk_path"] = str(vtk_path)
+        state["visual_export_paths"] = {"field_panel": str(export_path)}
+        state["history_selection"]["Visual Export"] = str(export_path)
+
+        self._select_case(case_id)
+        self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
+        self.window.tabs.setCurrentIndex(self.window.post_tab_index)
+
+        self.window.postprocess_view_combo.setCurrentText("Damage")
+        self._flush_events()
+        damage_min_height = self.window.postprocess_label.minimumHeight()
+        self.assertTrue(self.window.vtk_label.isVisible())
+
+        self.window.postprocess_view_combo.setCurrentText("Visual Export")
+        self._flush_events()
+
+        self.assertLess(self.window.postprocess_label.minimumHeight(), damage_min_height)
+        self.assertFalse(self.window.vtk_label.isVisible())
+        self.assertEqual(self.window.postprocess_detail_label.text(), f"Visual Export: {export_path.name}")
 
     def test_live_curve_card_can_collapse_and_restore(self):
         self._open_window()

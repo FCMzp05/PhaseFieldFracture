@@ -20,7 +20,9 @@ GUI 工作流固定为 `Mesh -> Compute -> Post-process`。参数面板按 `Geom
 当前进展补充：`install.md` 已补充 Linux 桌面字体与 `fontconfig` 前提，明确 `Times` 系字体回退链和检查命令。  
 当前进展补充：`install.md` 已补充 GR 系统运行库、Julia 官方 `juliaup` 安装路径和常见故障排查。  
 当前进展补充：仓库根目录已新增 [Project.toml](/home/dazhi_zhao/peng_pf_ui/Project.toml)，GUI 在未显式设置 `JULIA_PROJECT` 时会优先使用仓库自带 Julia 项目。  
-下一步：继续观察 `Post-process` 预览稳定性，并考虑补统一字体回退配置与可选 `Manifest.toml`，进一步减少首次安装和字体漂移问题。
+当前进展补充：`Post-process` 的 `Visual Export` 视图已改为更紧凑的预览高度，并隐藏无关 `VTK` 信息；导出图中顶部列标题与协议曲线 `A/B/C` 标注已去掉。  
+当前进展补充：`Post-process` 图片浏览已恢复缩放，支持 `Ctrl+滚轮`、`Ctrl+=/-`、`Ctrl+0` 和 `Ctrl+1`。  
+下一步：继续观察 `Post-process` 在不同窗口尺寸下的预览稳定性与缩放手感，并考虑补统一字体回退配置与可选 `Manifest.toml`，进一步减少首次安装和字体漂移问题。
 
 ## 环境
 

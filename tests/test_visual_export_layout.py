@@ -7,7 +7,7 @@ import matplotlib.image as mpimg
 import matplotlib.tri as mtri
 import numpy as np
 
-from visual.gui_case_exporters import _export_protocol_panel
+from visual.gui_case_exporters import _export_protocol_panel, _protocol_curve_points
 
 
 class VisualExportLayoutTests(unittest.TestCase):
@@ -39,6 +39,18 @@ class VisualExportLayoutTests(unittest.TestCase):
             image = mpimg.imread(output_path)
 
         self.assertGreater(image.shape[1], image.shape[0])
+
+    def test_protocol_curve_markers_do_not_include_abc_labels(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "curve.csv"
+            csv_path.write_text(
+                "step,u_mm,F_kN\n1,0.0,0.0\n2,0.1,1.0\n3,0.2,2.0\n",
+                encoding="utf-8",
+            )
+            _, _, markers = _protocol_curve_points(csv_path, [1, 2, 3], x_scale=1.0)
+
+        self.assertEqual(len(markers), 3)
+        self.assertTrue(all("label" not in marker for marker in markers))
 
 
 if __name__ == "__main__":
