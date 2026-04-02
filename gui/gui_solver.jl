@@ -112,6 +112,8 @@ curve_png_name(name::String) = "F_u_curve_$(name).png"
 damage_final_name(name::String) = "d_final_$(name).png"
 displacement_final_name(name::String) = "u_mag_final_$(name).png"
 displacement_snapshot_name(name::String, step::Int) = @sprintf("u_mag_%s_%04d.png", name, step)
+von_mises_final_name(name::String) = "von_mises_final_$(name).png"
+von_mises_snapshot_name(name::String, step::Int) = @sprintf("von_mises_%s_%04d.png", name, step)
 snapshot_name(name::String, step::Int) = @sprintf("snap_%s_%04d.png", name, step)
 vtk_prefix(name::String) = "result_$(name)_"
 vtk_filename(name::String, suffix::String) = vtk_prefix(name) * suffix
@@ -534,17 +536,17 @@ function write_paraview_vtk(trian, filebase; cellfields)
     writevtk(trian, filebase; nsubcells=1, cellfields=cellfields)
 end
 
-function render_live_preview(vtu_path::String, field_key::String, output_path::String, python_executable::String)
+function render_live_preview(vtu_path::String, field_key::String, output_path::String, python_executable::String, params::CaseParams)
     isfile(LIVE_PREVIEW_RENDERER) || error("Preview renderer not found: " * LIVE_PREVIEW_RENDERER)
-    run(`$(python_executable) $(LIVE_PREVIEW_RENDERER) --input $(vtu_path) --field $(field_key) --output $(output_path)`)
+    run(`$(python_executable) $(LIVE_PREVIEW_RENDERER) --input $(vtu_path) --field $(field_key) --output $(output_path) --young-modulus $(params.E) --poisson-ratio $(params.nu)`)
 end
 
-function write_live_preview(Ω, dh, uh, H_fe, output_path::String, field_key::String, python_executable::String)
+function write_live_preview(Ω, dh, uh, H_fe, output_path::String, field_key::String, python_executable::String, params::CaseParams)
     temp_base = endswith(output_path, ".png") ? replace(output_path, r"\.png$" => "_preview_tmp") : output_path * "_preview_tmp"
     temp_vtu = temp_base * ".vtu"
     try
         write_paraview_vtk(Ω, temp_base, cellfields=["d" => dh, "uh" => uh, "H" => H_fe])
-        render_live_preview(temp_vtu, field_key, output_path, python_executable)
+        render_live_preview(temp_vtu, field_key, output_path, python_executable, params)
     finally
         if isfile(temp_vtu)
             rm(temp_vtu; force=true)
@@ -751,11 +753,14 @@ function run_compute_stage(params::SentParams, mesh_file::String, python_executa
 
         if ENABLE_PNG && (step == 1 || step % params.snapshot_every == 0 || d_max > 0.95 || u_current >= params.u_end)
             png_path = joinpath(OUTPUT_DIR, snapshot_name(CASE_SENT, step))
-            write_live_preview(Ω, dh, uh, H_fe, png_path, "damage", python_executable)
+            write_live_preview(Ω, dh, uh, H_fe, png_path, "damage", python_executable, params)
             emit_line("SNAPSHOT " * abspath(png_path))
             displacement_png_path = joinpath(OUTPUT_DIR, displacement_snapshot_name(CASE_SENT, step))
-            write_live_preview(Ω, dh, uh, H_fe, displacement_png_path, "displacement", python_executable)
+            write_live_preview(Ω, dh, uh, H_fe, displacement_png_path, "displacement", python_executable, params)
             emit_line("DISPLACEMENT " * abspath(displacement_png_path))
+            von_mises_png_path = joinpath(OUTPUT_DIR, von_mises_snapshot_name(CASE_SENT, step))
+            write_live_preview(Ω, dh, uh, H_fe, von_mises_png_path, "von_mises", python_executable, params)
+            emit_line("VON_MISES " * abspath(von_mises_png_path))
             write_curve_plot(u_history, F_kN_history, CASE_SENT; color=:royalblue)
         end
 
@@ -772,12 +777,16 @@ function run_compute_stage(params::SentParams, mesh_file::String, python_executa
     end
 
     final_png = joinpath(OUTPUT_DIR, damage_final_name(CASE_SENT))
-    write_live_preview(Ω, dh, uh, H_fe, final_png, "damage", python_executable)
+    write_live_preview(Ω, dh, uh, H_fe, final_png, "damage", python_executable, params)
     emit_line("SNAPSHOT " * abspath(final_png))
 
     displacement_png = joinpath(OUTPUT_DIR, displacement_final_name(CASE_SENT))
-    write_live_preview(Ω, dh, uh, H_fe, displacement_png, "displacement", python_executable)
+    write_live_preview(Ω, dh, uh, H_fe, displacement_png, "displacement", python_executable, params)
     emit_line("DISPLACEMENT " * abspath(displacement_png))
+
+    von_mises_png = joinpath(OUTPUT_DIR, von_mises_final_name(CASE_SENT))
+    write_live_preview(Ω, dh, uh, H_fe, von_mises_png, "von_mises", python_executable, params)
+    emit_line("VON_MISES " * abspath(von_mises_png))
 
     write_curve_plot(u_history, F_kN_history, CASE_SENT; color=:royalblue)
     emit_info("F-u CSV saved to " * abspath(csv_path))
@@ -961,11 +970,14 @@ function run_compute_stage(params::SensParams, mesh_file::String, python_executa
 
         if ENABLE_PNG && (step == 1 || step % params.snapshot_every == 0 || d_max > 0.95 || u_current >= params.u_end)
             png_path = joinpath(OUTPUT_DIR, snapshot_name(CASE_SENS, step))
-            write_live_preview(Ω, dh, uh, H_fe, png_path, "damage", python_executable)
+            write_live_preview(Ω, dh, uh, H_fe, png_path, "damage", python_executable, params)
             emit_line("SNAPSHOT " * abspath(png_path))
             displacement_png_path = joinpath(OUTPUT_DIR, displacement_snapshot_name(CASE_SENS, step))
-            write_live_preview(Ω, dh, uh, H_fe, displacement_png_path, "displacement", python_executable)
+            write_live_preview(Ω, dh, uh, H_fe, displacement_png_path, "displacement", python_executable, params)
             emit_line("DISPLACEMENT " * abspath(displacement_png_path))
+            von_mises_png_path = joinpath(OUTPUT_DIR, von_mises_snapshot_name(CASE_SENS, step))
+            write_live_preview(Ω, dh, uh, H_fe, von_mises_png_path, "von_mises", python_executable, params)
+            emit_line("VON_MISES " * abspath(von_mises_png_path))
             write_curve_plot(u_history, F_kN_history, CASE_SENS; color=:firebrick)
         end
 
@@ -982,12 +994,16 @@ function run_compute_stage(params::SensParams, mesh_file::String, python_executa
     end
 
     final_png = joinpath(OUTPUT_DIR, damage_final_name(CASE_SENS))
-    write_live_preview(Ω, dh, uh, H_fe, final_png, "damage", python_executable)
+    write_live_preview(Ω, dh, uh, H_fe, final_png, "damage", python_executable, params)
     emit_line("SNAPSHOT " * abspath(final_png))
 
     displacement_png = joinpath(OUTPUT_DIR, displacement_final_name(CASE_SENS))
-    write_live_preview(Ω, dh, uh, H_fe, displacement_png, "displacement", python_executable)
+    write_live_preview(Ω, dh, uh, H_fe, displacement_png, "displacement", python_executable, params)
     emit_line("DISPLACEMENT " * abspath(displacement_png))
+
+    von_mises_png = joinpath(OUTPUT_DIR, von_mises_final_name(CASE_SENS))
+    write_live_preview(Ω, dh, uh, H_fe, von_mises_png, "von_mises", python_executable, params)
+    emit_line("VON_MISES " * abspath(von_mises_png))
 
     write_curve_plot(u_history, F_kN_history, CASE_SENS; color=:firebrick)
     emit_info("F-u CSV saved to " * abspath(csv_path))

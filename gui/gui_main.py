@@ -144,6 +144,8 @@ TOP_LEVEL_RESULT_PATTERNS = (
     "d_final*.png",
     "u_mag_final*.png",
     "u_mag_*.png",
+    "von_mises_final*.png",
+    "von_mises_*.png",
     "result*.vtu",
     "snap*.png",
 )
@@ -286,6 +288,18 @@ def sorted_existing(paths):
 
 def is_visual_export_view(view_name: str | None) -> bool:
     return (view_name or "") == "Visual Export"
+
+
+def postprocess_view_display_name(case, view_name: str) -> str:
+    if view_name == "Curve":
+        if case.curve_kind == "force_displacement":
+            return "Force-Displacement Curve"
+        if case.curve_kind == "crack_growth":
+            return "Crack Growth Curve"
+        return "Curve"
+    if view_name == "Visual Export":
+        return "Results Summary"
+    return view_name
 
 
 def active_conda_prefix() -> Path | None:
@@ -762,6 +776,7 @@ class ProtocolJuliaWorker(QThread):
     snapshot_update = pyqtSignal(str)
     vtk_update = pyqtSignal(str)
     displacement_update = pyqtSignal(str)
+    von_mises_update = pyqtSignal(str)
     status_update = pyqtSignal(str)
     finished_state = pyqtSignal(bool, str, str, str)
 
@@ -842,6 +857,9 @@ class ProtocolJuliaWorker(QThread):
         if line.startswith("DISPLACEMENT "):
             self.displacement_update.emit(line.split(" ", 1)[1])
             return
+        if line.startswith("VON_MISES "):
+            self.von_mises_update.emit(line.split(" ", 1)[1])
+            return
         if line.startswith("DONE"):
             self.status_update.emit("Solver finished.")
             if self.run_mode == "compute":
@@ -868,6 +886,7 @@ class BatchJuliaWorker(QThread):
     snapshot_update = pyqtSignal(str)
     vtk_update = pyqtSignal(str)
     displacement_update = pyqtSignal(str)
+    von_mises_update = pyqtSignal(str)
     status_update = pyqtSignal(str)
     finished_state = pyqtSignal(bool, str, str, str)
 
@@ -1071,9 +1090,8 @@ class MainWindow(QMainWindow):
             "progress": 0,
             "latest_damage_path": None,
             "latest_displacement_path": None,
+            "latest_von_mises_path": None,
             "latest_vtk_path": "",
-            "von_mises_paths": [],
-            "von_mises_cache_run_id": None,
             "visual_export_paths": {},
             "log_lines": [],
             "history_selection": {view_name: None for view_name in POSTPROCESS_VIEWS},
@@ -1095,6 +1113,12 @@ class MainWindow(QMainWindow):
 
     def _active_state(self):
         return self.case_states[self.active_case_id or self.current_case]
+
+    def _current_postprocess_view(self):
+        view_name = self.postprocess_view_combo.currentData()
+        if isinstance(view_name, str) and view_name:
+            return view_name
+        return self.postprocess_view_combo.currentText()
 
     def _default_mesh_status(self, case):
         if not case.is_ready:
@@ -1423,9 +1447,9 @@ class MainWindow(QMainWindow):
         displacement_layout = QVBoxLayout(displacement_card)
         displacement_layout.setContentsMargins(16, 14, 16, 16)
         displacement_layout.setSpacing(10)
-        displacement_layout.addWidget(self._create_section_label("Displacement Contour"))
+        displacement_layout.addWidget(self._create_section_label("Von Mises Contour"))
         self.displacement_label = self._create_image_viewer(
-            "Displacement snapshot will appear here.",
+            "Von Mises snapshot will appear here.",
             surface_variant="borderless",
             fixed_fit=True,
         )
@@ -2383,7 +2407,7 @@ class MainWindow(QMainWindow):
         preview_min_height = 320 if stacked_main else 440
         compute_preview_min_height = 260 if stacked_main else 340
         curve_min_height = 180 if stacked_main else 210
-        active_postprocess_view = self.postprocess_view_combo.currentText()
+        active_postprocess_view = self._current_postprocess_view()
         if is_visual_export_view(active_postprocess_view):
             postprocess_surface_min_height = 180 if compact_actions else 230
         else:
@@ -2532,6 +2556,7 @@ class MainWindow(QMainWindow):
         curve_csv_paths=(),
         damage_paths=(),
         displacement_paths=(),
+        von_mises_paths=(),
     ):
         mesh_paths = dedupe_existing_paths(mesh_paths)
         snapshot_paths = dedupe_existing_paths(snapshot_paths)
@@ -2539,7 +2564,8 @@ class MainWindow(QMainWindow):
         curve_csv_paths = dedupe_existing_paths(curve_csv_paths)
         damage_paths = dedupe_existing_paths(damage_paths)
         displacement_paths = dedupe_existing_paths(displacement_paths)
-        if not any([mesh_paths, snapshot_paths, vtk_paths, curve_csv_paths, damage_paths, displacement_paths]):
+        von_mises_paths = dedupe_existing_paths(von_mises_paths)
+        if not any([mesh_paths, snapshot_paths, vtk_paths, curve_csv_paths, damage_paths, displacement_paths, von_mises_paths]):
             return None
 
         source_script = (
@@ -2565,6 +2591,7 @@ class MainWindow(QMainWindow):
             curve_csv_paths=curve_csv_paths,
             damage_paths=damage_paths,
             displacement_paths=displacement_paths,
+            von_mises_paths=von_mises_paths,
         )
 
     def _build_manifest_from_disk(
@@ -2670,6 +2697,7 @@ class MainWindow(QMainWindow):
         curve_candidates = [native_output_dir / curve_csv_name(case_name)]
         damage_candidates = [native_output_dir / damage_final_name(case_name)]
         displacement_candidates = [native_output_dir / displacement_final_name(case_name)]
+        von_mises_candidates = [native_output_dir / von_mises_final_name(case_name)]
         legacy_mode = run_dir_path is None
         if legacy_mode and case_name == "SENT":
             curve_candidates.append(native_output_dir / "F_u_curve.csv")
@@ -2678,9 +2706,11 @@ class MainWindow(QMainWindow):
         curve_csv = first_existing(*curve_candidates)
         damage_final = first_existing(*damage_candidates)
         displacement_final = first_existing(*displacement_candidates)
+        von_mises_final = first_existing(*von_mises_candidates)
 
         snapshot_paths = [path for path in native_output_dir.glob(f"snap_{case_name}_*.png") if path.is_file()]
         displacement_paths = [path for path in native_output_dir.glob(f"u_mag_{case_name}_*.png") if path.is_file()]
+        von_mises_paths = [path for path in native_output_dir.glob(f"von_mises_{case_name}_*.png") if path.is_file()]
         vtk_paths = [path for path in native_output_dir.glob(f"{result_prefix(case_name)}*.vtu") if path.is_file()]
         if legacy_mode and case_name == "SENT":
             snapshot_paths.extend(
@@ -2694,6 +2724,8 @@ class MainWindow(QMainWindow):
                 vtk_paths.append(legacy_final_vtk)
         if displacement_final is not None:
             displacement_paths.append(displacement_final)
+        if von_mises_final is not None:
+            von_mises_paths.append(von_mises_final)
 
         return self._make_manifest(
             case,
@@ -2708,6 +2740,7 @@ class MainWindow(QMainWindow):
             curve_csv_paths=[curve_csv] if curve_csv else [],
             damage_paths=[damage_final] if damage_final else [],
             displacement_paths=displacement_paths,
+            von_mises_paths=von_mises_paths,
         )
 
     def _build_batch_manifest(
@@ -2725,6 +2758,7 @@ class MainWindow(QMainWindow):
         curve_csv_paths=(),
         damage_paths=(),
         displacement_paths=(),
+        von_mises_paths=(),
     ):
         return self._make_manifest(
             case,
@@ -2739,6 +2773,7 @@ class MainWindow(QMainWindow):
             curve_csv_paths=curve_csv_paths,
             damage_paths=damage_paths,
             displacement_paths=displacement_paths,
+            von_mises_paths=von_mises_paths,
         )
 
     def _collect_files(self, base_dir: Path, patterns, recursive: bool = True):
@@ -2953,9 +2988,8 @@ class MainWindow(QMainWindow):
         state["mesh_preview_path"] = self._first_file(manifest.mesh_paths, suffix=".png")
         state["latest_damage_path"] = self._last_file(manifest.damage_paths or manifest.snapshot_paths, suffix=".png")
         state["latest_displacement_path"] = self._last_file(manifest.displacement_paths, suffix=".png")
+        state["latest_von_mises_path"] = self._last_file(manifest.von_mises_paths, suffix=".png")
         state["latest_vtk_path"] = str(self._last_file(manifest.vtk_paths, suffix=".vtu") or "")
-        state["von_mises_paths"] = []
-        state["von_mises_cache_run_id"] = None
         state["visual_export_paths"] = dict(manifest.exported_visual_paths)
         state["compute_completed"] = bool(
             manifest.snapshot_paths or manifest.curve_csv_paths or manifest.vtk_paths or manifest.exported_visual_paths
@@ -2971,7 +3005,9 @@ class MainWindow(QMainWindow):
         state["history_selection"]["Displacement"] = (
             str(state["latest_displacement_path"]) if state["latest_displacement_path"] else None
         )
-        state["history_selection"]["Von Mises"] = None
+        state["history_selection"]["Von Mises"] = (
+            str(state["latest_von_mises_path"]) if state["latest_von_mises_path"] else None
+        )
         summary_csv = self._summary_csv_path(case_id)
         state["history_selection"]["Summary Table"] = str(summary_csv) if summary_csv else None
         state["history_selection"]["Comparison Curve"] = None
@@ -2986,7 +3022,8 @@ class MainWindow(QMainWindow):
         has_displacement = bool(state["latest_displacement_path"]) or bool(manifest and manifest.displacement_paths)
         if case.result_profile.startswith("protocol_") or has_displacement:
             views.append("Displacement")
-        if case.result_profile.startswith("protocol_") and bool(manifest and manifest.vtk_paths):
+        has_von_mises = bool(state["latest_von_mises_path"]) or bool(manifest and manifest.von_mises_paths)
+        if case.result_profile.startswith("protocol_") and (has_von_mises or bool(manifest and manifest.vtk_paths)):
             views.append("Von Mises")
         if len(case.curve_columns) == 2:
             views.append("Curve")
@@ -3000,15 +3037,16 @@ class MainWindow(QMainWindow):
 
     def _sync_postprocess_view_combo(self, case_id: str):
         available_views = self._available_postprocess_views(case_id)
-        current_view = self.postprocess_view_combo.currentText()
+        current_view = self._current_postprocess_view()
         if current_view not in available_views:
             current_view = available_views[0] if available_views else ""
 
         self._syncing_postprocess_view = True
         self.postprocess_view_combo.clear()
-        self.postprocess_view_combo.addItems(available_views)
+        for view_name in available_views:
+            self.postprocess_view_combo.addItem(postprocess_view_display_name(CASE_DEFINITIONS[case_id], view_name), view_name)
         if current_view:
-            index = self.postprocess_view_combo.findText(current_view)
+            index = self.postprocess_view_combo.findData(current_view)
             if index >= 0:
                 self.postprocess_view_combo.setCurrentIndex(index)
         self._syncing_postprocess_view = False
@@ -3388,8 +3426,8 @@ class MainWindow(QMainWindow):
         self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder(), animate=False)
         self._set_label_image(
             self.displacement_label,
-            state["latest_displacement_path"],
-            "Run compute to view the displacement contour.",
+            state["latest_von_mises_path"],
+            "Run compute to view the Von Mises contour.",
             animate=False,
         )
 
@@ -3750,6 +3788,13 @@ class MainWindow(QMainWindow):
                 paths.append(latest_displacement)
             return [path for path in paths if path.exists()]
         if view_name == "Von Mises":
+            paths = [Path(path) for path in manifest.von_mises_paths]
+            latest_von_mises = state["latest_von_mises_path"]
+            if latest_von_mises and latest_von_mises not in paths:
+                paths.append(latest_von_mises)
+            existing_paths = [path for path in paths if path.exists()]
+            if existing_paths:
+                return existing_paths
             return self._ensure_von_mises_history(case_id)
         if view_name == "Curve":
             return [Path(path) for path in manifest.curve_csv_paths if Path(path).exists()]
@@ -3766,7 +3811,7 @@ class MainWindow(QMainWindow):
         self.vtk_label.setVisible(show_vtk)
 
     def _refresh_history_combo(self, prefer_latest: bool):
-        view_name = self.postprocess_view_combo.currentText()
+        view_name = self._current_postprocess_view()
         state = self._current_state()
         paths = self._history_paths_for_case(self.current_case, view_name)
         selected_path = state["history_selection"].get(view_name)
@@ -3891,7 +3936,7 @@ class MainWindow(QMainWindow):
     def on_history_changed(self, _index: int):
         if self._syncing_history:
             return
-        view_name = self.postprocess_view_combo.currentText()
+        view_name = self._current_postprocess_view()
         self._current_state()["history_selection"][view_name] = self.history_combo.currentData()
         self.refresh_postprocess_view(prefer_latest=False, animate=True)
 
@@ -3906,7 +3951,7 @@ class MainWindow(QMainWindow):
         if 0 <= frame_index < len(self._postprocess_timeline_paths):
             self.postprocess_timeline_value_label.setText(
                 self._timeline_label_text(
-                    self.postprocess_view_combo.currentText(),
+                    self._current_postprocess_view(),
                     Path(self._postprocess_timeline_paths[frame_index]),
                     frame_index,
                     len(self._postprocess_timeline_paths),
@@ -3979,6 +4024,16 @@ class MainWindow(QMainWindow):
         state = self._active_state()
         state["latest_displacement_path"] = path
         state["history_selection"]["Displacement"] = str(path)
+        if self.active_case_id == self.current_case:
+            self.refresh_postprocess_view(prefer_latest=True, animate=self.tabs.currentIndex() == self.post_tab_index)
+
+    def update_von_mises_path(self, image_path: str):
+        path = Path(image_path)
+        if not path.exists():
+            return
+        state = self._active_state()
+        state["latest_von_mises_path"] = path
+        state["history_selection"]["Von Mises"] = str(path)
         if self.active_case_id == self.current_case:
             self._refresh_compute_live_previews()
             self.refresh_postprocess_view(prefer_latest=True, animate=self.tabs.currentIndex() == self.post_tab_index)
@@ -4065,9 +4120,8 @@ class MainWindow(QMainWindow):
         state["compute_status"] = self._default_compute_status(case)
         state["latest_damage_path"] = None
         state["latest_displacement_path"] = None
+        state["latest_von_mises_path"] = None
         state["latest_vtk_path"] = ""
-        state["von_mises_paths"] = []
-        state["von_mises_cache_run_id"] = None
         state["visual_export_paths"] = {}
         state["manifest"] = None
         state["manifest_path"] = None
@@ -4120,6 +4174,7 @@ class MainWindow(QMainWindow):
         self.worker.snapshot_update.connect(self.update_snapshot)
         self.worker.vtk_update.connect(self.update_vtk_path)
         self.worker.displacement_update.connect(self.update_displacement_path)
+        self.worker.von_mises_update.connect(self.update_von_mises_path)
         self.worker.status_update.connect(self.set_status)
         self.worker.finished_state.connect(self.on_worker_finished)
         self._set_busy_state(run_mode, case.case_id)
@@ -4184,7 +4239,7 @@ class MainWindow(QMainWindow):
 
     def refresh_postprocess_view(self, prefer_latest: bool, animate: bool = True):
         self._refresh_history_combo(prefer_latest=prefer_latest)
-        view_name = self.postprocess_view_combo.currentText()
+        view_name = self._current_postprocess_view()
         selected_path = self.history_combo.currentData()
         apply_content = lambda: self._render_postprocess_view(view_name, selected_path)
         apply_content()

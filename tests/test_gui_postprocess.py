@@ -662,19 +662,19 @@ class GuiPostprocessTests(unittest.TestCase):
         self.app.processEvents()
 
         damage_path = self.temp_path / "snap_SENT_0001.png"
-        displacement_path = self.temp_path / "u_mag_SENT_0001.png"
+        von_mises_path = self.temp_path / "von_mises_SENT_0001.png"
         damage_image = QImage(320, 240, QImage.Format_RGB32)
         damage_image.fill(QColor("#dce8f5"))
-        displacement_image = QImage(320, 240, QImage.Format_RGB32)
-        displacement_image.fill(QColor("#ffffff"))
+        von_mises_image = QImage(320, 240, QImage.Format_RGB32)
+        von_mises_image.fill(QColor("#ffffff"))
         self.assertTrue(damage_image.save(str(damage_path)))
-        self.assertTrue(displacement_image.save(str(displacement_path)))
+        self.assertTrue(von_mises_image.save(str(von_mises_path)))
 
         self.window.current_case = "sent_tension"
         self.window.active_case_id = "sent_tension"
         self.window.active_run_mode = "compute"
         self.window.update_snapshot(str(damage_path))
-        self.window.update_displacement_path(str(displacement_path))
+        self.window.update_von_mises_path(str(von_mises_path))
         self.app.processEvents()
 
         self.assertIsNotNone(self.window.damage_label.image_label.pixmap())

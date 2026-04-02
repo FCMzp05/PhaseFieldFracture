@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from visual.gui_case_exporters import (
+    _compute_protocol_von_mises,
     _configure_vertical_colorbar,
     _merged_boundary_loops,
     _scalar_field,
@@ -26,7 +27,7 @@ from visual.gui_case_exporters import (
 )
 
 
-def _field_payload(mesh: meshio.Mesh, field: str):
+def _field_payload(mesh: meshio.Mesh, field: str, young_modulus: float, poisson_ratio: float):
     if field == "damage":
         values = _scalar_field(mesh, "d")
         return values, plt.get_cmap("turbo"), mpl.colors.Normalize(0.0, 1.0), r"$d$"
@@ -35,12 +36,20 @@ def _field_payload(mesh: meshio.Mesh, field: str):
         finite_values = values[np.isfinite(values)]
         vmax = float(np.max(finite_values)) if finite_values.size else 1.0e-12
         return values, plt.get_cmap("viridis"), mpl.colors.Normalize(0.0, max(vmax, 1.0e-12)), "mm"
+    if field == "von_mises":
+        points, cells, _ = _triangulation(mesh)
+        damage = _scalar_field(mesh, "d")
+        displacement = _vector_field(mesh, "uh")
+        values = _compute_protocol_von_mises(points, cells, displacement, damage, young_modulus, poisson_ratio)
+        finite_values = values[np.isfinite(values)]
+        vmax = float(np.percentile(finite_values, 98.0)) if finite_values.size else 1.0e-12
+        return values, plt.get_cmap("plasma"), mpl.colors.Normalize(0.0, max(vmax, 1.0e-12)), "MPa"
     raise ValueError(f"Unsupported field: {field}")
 
 
-def render_preview(input_path: Path, field: str, output_path: Path) -> None:
+def render_preview(input_path: Path, field: str, output_path: Path, young_modulus: float, poisson_ratio: float) -> None:
     mesh = meshio.read(input_path)
-    values, cmap, norm, colorbar_title = _field_payload(mesh, field)
+    values, cmap, norm, colorbar_title = _field_payload(mesh, field, young_modulus, poisson_ratio)
     points, cells, triangulation = _triangulation(mesh)
 
     figure = plt.figure(figsize=(7.6, 5.8), dpi=200)
@@ -83,11 +92,13 @@ def render_preview(input_path: Path, field: str, output_path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Render GUI live preview PNG from VTU data.")
     parser.add_argument("--input", required=True, type=Path)
-    parser.add_argument("--field", required=True, choices=("damage", "displacement"))
+    parser.add_argument("--field", required=True, choices=("damage", "displacement", "von_mises"))
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--young-modulus", type=float, default=210950.0)
+    parser.add_argument("--poisson-ratio", type=float, default=0.3)
     args = parser.parse_args()
 
-    render_preview(args.input, args.field, args.output)
+    render_preview(args.input, args.field, args.output, args.young_modulus, args.poisson_ratio)
 
 
 if __name__ == "__main__":

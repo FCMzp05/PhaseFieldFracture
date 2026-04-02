@@ -21,7 +21,7 @@ GUI 工作流固定为 `Mesh -> Compute -> Post-process`。参数面板按 `Geom
 当前进展补充：`install.md` 已补充 GR 系统运行库、Julia 官方 `juliaup` 安装路径和常见故障排查。  
 当前进展补充：仓库根目录已新增 [Project.toml](/home/dazhi_zhao/peng_pf_ui/Project.toml)，GUI 在未显式设置 `JULIA_PROJECT` 时会优先使用仓库自带 Julia 项目。  
 当前进展补充：`Post-process` 的 `Visual Export` 视图已改为更紧凑的预览高度，并隐藏无关 `VTK` 信息；导出图中顶部列标题与协议曲线 `A/B/C` 标注已去掉。  
-当前进展补充：`Post-process` 的 `History` 下拉已移除，序列浏览改为仅对 `Damage / Displacement / Von Mises` 生效的顶栏加粗可拖拽时间轴，`Mesh / Visual Export` 不再显示时间轴；协议类 `Visual Export` 的 `field panel` 已扩为横向 `1x3`，内容为 `damage / displacement magnitude / von Mises stress`。  
+当前进展补充：`Compute` 右侧第二张实时预览已由位移云图改为 `Von Mises` 云图；`Post-process` 的 `History` 下拉已移除，序列浏览改为仅对 `Damage / Displacement / Von Mises` 生效的顶栏加粗可拖拽时间轴，`Mesh / Visual Export` 不再显示时间轴；协议类 `Visual Export` 的 `field panel` 已扩为横向 `1x3`，内容为 `damage / displacement magnitude / von Mises stress`。  
 下一步：继续观察顶栏时间轴在 batch benchmark 大量历史帧下的可读性与响应速度，并评估是否需要进一步补刻度或关键帧标记。
 
 ## 环境
