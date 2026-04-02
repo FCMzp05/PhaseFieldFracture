@@ -115,6 +115,48 @@ class GuiPostprocessTests(unittest.TestCase):
         )
         write_manifest(self.manifest_dir / f"{case_id}_latest.json", manifest)
 
+    def test_julia_env_resolution_follows_active_conda_env(self):
+        fake_prefix = self.temp_path / "envs" / "gui_envs"
+        expected_project = fake_prefix / "share" / "julia" / "environments" / "gui_envs"
+        expected_depot = fake_prefix / "share" / "julia"
+
+        with mock.patch.object(gui_main, "repo_julia_project_dir", return_value=None), mock.patch.dict(
+            os.environ,
+            {
+                "CONDA_PREFIX": str(fake_prefix),
+                "CONDA_DEFAULT_ENV": "gui_envs",
+            },
+            clear=True,
+        ):
+            self.assertEqual(gui_main.resolved_julia_project(), str(expected_project))
+            self.assertEqual(gui_main.resolved_julia_depot(), str(expected_depot))
+
+    def test_julia_env_resolution_respects_explicit_env_vars(self):
+        with mock.patch.object(gui_main, "repo_julia_project_dir", return_value=self.temp_path / "repo"), mock.patch.dict(
+            os.environ,
+            {
+                "JULIA_PROJECT": "@custom_project",
+                "JULIA_DEPOT_PATH": "/tmp/custom_depot:/tmp/fallback_depot",
+                "CONDA_PREFIX": str(self.temp_path / "ignored"),
+                "CONDA_DEFAULT_ENV": "ignored",
+            },
+            clear=True,
+        ):
+            self.assertEqual(gui_main.resolved_julia_project(), "@custom_project")
+            self.assertEqual(gui_main.resolved_julia_depot(), "/tmp/custom_depot:/tmp/fallback_depot")
+
+    def test_julia_env_resolution_prefers_repo_project_when_present(self):
+        repo_dir = self.temp_path / "repo"
+        with mock.patch.object(gui_main, "repo_julia_project_dir", return_value=repo_dir), mock.patch.dict(
+            os.environ,
+            {
+                "CONDA_PREFIX": str(self.temp_path / "envs" / "gui_envs"),
+                "CONDA_DEFAULT_ENV": "gui_envs",
+            },
+            clear=True,
+        ):
+            self.assertEqual(gui_main.resolved_julia_project(), str(repo_dir))
+
     def test_fatigue_case_exposes_curve_view(self):
         self._open_window()
         self._select_case("sent_elasto_plastic_fatigue")
@@ -279,7 +321,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertFalse(isinstance(self.window.postprocess_stack.graphicsEffect(), QGraphicsOpacityEffect))
         self.assertIs(self.window.postprocess_stack.currentWidget(), self.window.postprocess_curve_canvas)
 
-    def test_postprocess_image_viewer_supports_ctrl_wheel_zoom(self):
+    def test_postprocess_image_viewer_hides_internal_scrollbars_and_ignores_ctrl_wheel(self):
         self._write_postprocess_manifest("sent_tension")
         self._open_window()
         self.window.resize(1280, 900)
@@ -291,8 +333,11 @@ class GuiPostprocessTests(unittest.TestCase):
 
         viewer = self.window.postprocess_label
         self.assertTrue(viewer.has_image())
-        viewer.show_actual_size()
         self._flush_events()
+        self.assertEqual(viewer.scroll_area.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
+        self.assertEqual(viewer.scroll_area.verticalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
+        self.assertFalse(viewer.scroll_area.horizontalScrollBar().isVisible())
+        self.assertFalse(viewer.scroll_area.verticalScrollBar().isVisible())
 
         start_scale = viewer._current_scale_factor()
         wheel_event = QWheelEvent(
@@ -308,9 +353,9 @@ class GuiPostprocessTests(unittest.TestCase):
         QApplication.sendEvent(viewer.scroll_area.viewport(), wheel_event)
         self._flush_events()
 
-        self.assertGreater(viewer._current_scale_factor(), start_scale)
+        self.assertEqual(viewer._current_scale_factor(), start_scale)
 
-    def test_postprocess_image_viewer_supports_keyboard_zoom_shortcuts(self):
+    def test_postprocess_image_viewer_ignores_keyboard_zoom_shortcuts(self):
         self._write_postprocess_manifest("sent_tension")
         self._open_window()
         self.window.resize(1280, 900)
@@ -328,16 +373,15 @@ class GuiPostprocessTests(unittest.TestCase):
         fit_scale = viewer._current_scale_factor()
         QTest.keyClick(viewer, Qt.Key_Equal, Qt.ControlModifier)
         self._flush_events()
-        zoomed_scale = viewer._current_scale_factor()
-        self.assertGreater(zoomed_scale, fit_scale)
+        self.assertEqual(viewer._current_scale_factor(), fit_scale)
 
         QTest.keyClick(viewer, Qt.Key_0, Qt.ControlModifier)
         self._flush_events()
-        self.assertLess(viewer._current_scale_factor(), zoomed_scale)
+        self.assertEqual(viewer._current_scale_factor(), fit_scale)
 
         QTest.keyClick(viewer, Qt.Key_1, Qt.ControlModifier)
         self._flush_events()
-        self.assertAlmostEqual(viewer._current_scale_factor(), 1.0, places=2)
+        self.assertEqual(viewer._current_scale_factor(), fit_scale)
 
     def test_postprocess_tab_stays_scrollable_in_compact_window(self):
         self._open_window()
@@ -349,7 +393,6 @@ class GuiPostprocessTests(unittest.TestCase):
 
         scrollbar = self.window.postprocess_scroll.verticalScrollBar()
         self.assertGreater(scrollbar.maximum(), 0)
-        self.assertTrue(self.window.open_paraview_button.isVisible())
         self.assertTrue(self.window.export_results_button.isVisible())
 
     def test_live_curve_card_can_collapse_and_restore(self):
@@ -361,8 +404,10 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertFalse(self.window._compute_curve_collapsed)
         self.assertFalse(self.window.curve_surface.isHidden())
         self.assertEqual(self.window.curve_toggle_button.text(), "▾")
-        self.assertFalse(self.window.keep_cache_button.isChecked())
-        self.assertEqual(self.window.keep_cache_button.text(), "Keep Temp Cache Off")
+        self.assertFalse(self.window.keep_cache_action.isChecked())
+        self.assertEqual(self.window.keep_cache_action.text(), "Keep Temp Cache Off")
+        self.assertEqual(self.window.more_button.text(), "More")
+        self.assertEqual(self.window.more_button.minimumWidth(), 64)
 
     def test_default_close_purges_transient_results(self):
         run_dir = self.runs_dir / "sent_tension" / "sent_tension_20260402_000000"
@@ -377,7 +422,7 @@ class GuiPostprocessTests(unittest.TestCase):
 
         self.assertFalse(run_dir.exists())
 
-    def test_keep_temp_cache_button_preserves_results_across_reopen(self):
+    def test_keep_temp_cache_menu_action_preserves_results_across_reopen(self):
         run_dir = self.runs_dir / "sent_tension" / "sent_tension_20260402_000000"
         run_dir.mkdir(parents=True, exist_ok=True)
         payload_path = run_dir / "snap_SENT_0001.png"
@@ -386,12 +431,14 @@ class GuiPostprocessTests(unittest.TestCase):
         self._open_window()
         self.window.show()
         self._flush_events()
-        self.window.keep_cache_button.click()
+        self.window.keep_cache_action.trigger()
         self._flush_events()
 
         self.assertTrue(self.window.keep_transient_results)
         self.assertTrue(gui_main.load_transient_cache_preference())
-        self.assertEqual(self.window.keep_cache_button.text(), "Keep Temp Cache On")
+        self.assertTrue(self.window.keep_cache_action.isChecked())
+        self.assertEqual(self.window.keep_cache_action.text(), "Keep Temp Cache On")
+        self.assertEqual(self.window.more_button.text(), "More")
 
         self.window.close()
         self.app.processEvents()
@@ -402,8 +449,8 @@ class GuiPostprocessTests(unittest.TestCase):
 
         self._open_window()
         self.assertTrue(self.window.keep_transient_results)
-        self.assertTrue(self.window.keep_cache_button.isChecked())
-        self.assertEqual(self.window.keep_cache_button.text(), "Keep Temp Cache On")
+        self.assertTrue(self.window.keep_cache_action.isChecked())
+        self.assertEqual(self.window.keep_cache_action.text(), "Keep Temp Cache On")
 
     def test_compute_live_preview_panel_shows_damage_and_displacement(self):
         self._open_window()

@@ -11,13 +11,16 @@
 # - pyqt=5.15.11
 # - matplotlib=3.10.8
 # - meshio=5.3.5
+# - pandas
+# - scipy
 #
 # Julia runtime note:
 # - Julia is not installed from this conda environment
 # - GUI launches the system `julia` from PATH
-# - Current binary path: /home/dazhi_zhao/opt/julia-1.12.5/bin/julia
+# - GUI prefers the repo Project.toml as JULIA_PROJECT
+# - GUI infers JULIA_DEPOT_PATH from the active conda env
 #
-# Verified top-level Julia packages in the active system Julia environment:
+# Required top-level Julia packages for GUI runtime:
 # - Gmsh v0.3.1
 # - Gridap v0.20.3
 # - GridapGmsh v0.7.4
@@ -178,6 +181,7 @@ dependencies:
   - openssl=3.6.1
   - p7zip=16.02
   - packaging=26.0
+  - pandas
   - pcre2=10.44
   - perl=5.32.1
   - pillow=12.1.1
@@ -200,6 +204,7 @@ dependencies:
   - setuptools=82.0.1
   - sip=6.10.0
   - six=1.17.0
+  - scipy
   - suitesparse=7.10.1
   - tk=8.6.13
   - toml=0.10.2

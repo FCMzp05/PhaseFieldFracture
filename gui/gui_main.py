@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -23,12 +24,12 @@ from PyQt5.QtCore import (
 )
 from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QPixmap
 from PyQt5.QtWidgets import (
+    QAction,
     QApplication,
     QBoxLayout,
     QComboBox,
     QFileDialog,
     QFormLayout,
-    QGraphicsDropShadowEffect,
     QGraphicsOpacityEffect,
     QGroupBox,
     QHeaderView,
@@ -40,6 +41,7 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QMenu,
     QShortcut,
     QScrollArea,
     QSizePolicy,
@@ -47,6 +49,7 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -130,8 +133,6 @@ ANIMATION_MEDIUM_MS = 220
 ANIMATION_SLOW_MS = 320
 ANIMATION_TOAST_STAY_MS = 2200
 JULIA_COMMAND = "julia"
-GUI_ENVS_JULIA_PROJECT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia/environments/gui_envs"
-GUI_ENVS_JULIA_DEPOT = "/home/dazhi_zhao/miniforge3/envs/gui_envs/share/julia"
 SUBTITLE_FONT_SIZE = 18
 TOP_LEVEL_RESULT_PATTERNS = (
     "mesh_*.msh",
@@ -260,17 +261,75 @@ def sorted_existing(paths):
     return [path for path in sorted(paths) if path.exists()]
 
 
+def active_conda_prefix() -> Path | None:
+    raw_prefix = os.environ.get("CONDA_PREFIX")
+    if not raw_prefix:
+        return None
+    return Path(raw_prefix)
+
+
+def active_conda_env_name() -> str | None:
+    raw_name = os.environ.get("CONDA_DEFAULT_ENV")
+    if raw_name:
+        return raw_name
+    prefix = active_conda_prefix()
+    if prefix is None:
+        return None
+    return prefix.name
+
+
+def repo_julia_project_dir() -> Path | None:
+    project_file = REPO_ROOT / "Project.toml"
+    if project_file.is_file():
+        return REPO_ROOT
+    return None
+
+
+def resolved_julia_project() -> str | None:
+    explicit_project = os.environ.get("JULIA_PROJECT")
+    if explicit_project:
+        return explicit_project
+    repo_project = repo_julia_project_dir()
+    if repo_project is not None:
+        return str(repo_project)
+    prefix = active_conda_prefix()
+    env_name = active_conda_env_name()
+    if prefix is None or not env_name:
+        return None
+    return str(prefix / "share" / "julia" / "environments" / env_name)
+
+
+def resolved_julia_depot() -> str | None:
+    explicit_depot = os.environ.get("JULIA_DEPOT_PATH")
+    if explicit_depot:
+        return explicit_depot
+    prefix = active_conda_prefix()
+    if prefix is None:
+        return None
+    return str(prefix / "share" / "julia")
+
+
 def julia_env_prefix() -> str:
-    return (
-        f'export JULIA_PROJECT="{GUI_ENVS_JULIA_PROJECT}" && '
-        f'export JULIA_DEPOT_PATH="{GUI_ENVS_JULIA_DEPOT}" && '
-    )
+    exports: list[str] = []
+    project = resolved_julia_project()
+    depot = resolved_julia_depot()
+    if project:
+        exports.append(f"export JULIA_PROJECT={shlex.quote(project)}")
+    if depot:
+        exports.append(f"export JULIA_DEPOT_PATH={shlex.quote(depot)}")
+    if not exports:
+        return ""
+    return " && ".join(exports) + " && "
 
 
 def julia_subprocess_env():
     env = dict(os.environ)
-    env["JULIA_PROJECT"] = GUI_ENVS_JULIA_PROJECT
-    env["JULIA_DEPOT_PATH"] = GUI_ENVS_JULIA_DEPOT
+    project = resolved_julia_project()
+    depot = resolved_julia_depot()
+    if project:
+        env["JULIA_PROJECT"] = project
+    if depot:
+        env["JULIA_DEPOT_PATH"] = depot
     env["GKS_WSTYPE"] = "100"
     for key in (
         "DISPLAY",
@@ -468,7 +527,8 @@ class ImagePreviewWidget(QWidget):
         self.setMinimumHeight(420)
         self.setFocusPolicy(Qt.StrongFocus)
         self._zoom_shortcuts = []
-        self._install_zoom_shortcuts()
+        if not self._fixed_fit:
+            self._install_zoom_shortcuts()
         self._update_controls()
 
     def has_image(self) -> bool:
@@ -646,6 +706,8 @@ class ImagePreviewWidget(QWidget):
 
     def eventFilter(self, watched, event):
         if watched in {self.scroll_area, self.scroll_area.viewport(), self.image_label} and self.isVisible():
+            if self._fixed_fit and event.type() == QEvent.Wheel and (event.modifiers() & Qt.ControlModifier):
+                return True
             if not self._fixed_fit and event.type() == QEvent.Wheel and self.has_image() and (event.modifiers() & Qt.ControlModifier):
                 cursor_pos = event.pos()
                 if watched is not self.scroll_area.viewport():
@@ -872,7 +934,6 @@ class MainWindow(QMainWindow):
         self._compute_curve_collapsed = False
         self.keep_transient_results = load_transient_cache_preference()
 
-        self.paraview_executable = shutil.which("paraview")
         self.run_profile_overrides = {}
         self.default_scan_cases = {}
         self.default_params = self._load_default_params()
@@ -886,7 +947,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._apply_theme()
-        self._apply_depth_effects()
+        self.toast_label = self._build_toast_label(self.centralWidget())
         self._register_animated_buttons()
         self._sync_transient_cache_button()
         self._load_manifests_from_disk()
@@ -1082,12 +1143,19 @@ class MainWindow(QMainWindow):
         badge_row.setContentsMargins(0, 0, 0, 0)
         badge_row.setSpacing(12)
         badge_row.addWidget(self.case_status_badge)
-        self.keep_cache_button = QPushButton("Keep Temp Cache")
-        self.keep_cache_button.setCheckable(True)
-        self.keep_cache_button.setProperty("variant", "secondary")
-        self.keep_cache_button.setProperty("toggle_button", True)
-        self.keep_cache_button.toggled.connect(self.on_keep_cache_toggled)
-        badge_row.addWidget(self.keep_cache_button, stretch=0)
+        self.more_button = QToolButton()
+        self.more_button.setText("More")
+        self.more_button.setPopupMode(QToolButton.InstantPopup)
+        self.more_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.more_button.setProperty("subtle_tool_button", True)
+        self.more_menu = QMenu(self.more_button)
+        self.more_menu.setObjectName("HeaderMenu")
+        self.keep_cache_action = QAction("Keep Temp Cache", self)
+        self.keep_cache_action.setCheckable(True)
+        self.keep_cache_action.toggled.connect(self.on_keep_cache_toggled)
+        self.more_menu.addAction(self.keep_cache_action)
+        self.more_button.setMenu(self.more_menu)
+        badge_row.addWidget(self.more_button, stretch=0)
         badge_row.addStretch(1)
         header_layout.addLayout(badge_row)
         root_layout.addWidget(header_card)
@@ -1399,11 +1467,6 @@ class MainWindow(QMainWindow):
         action_row = QHBoxLayout()
         action_row.setSpacing(12)
         self.postprocess_action_layout = action_row
-        self.open_paraview_button = QPushButton("Open In ParaView")
-        self.open_paraview_button.setProperty("variant", "secondary")
-        self.open_paraview_button.clicked.connect(self.open_in_paraview)
-        action_row.addWidget(self.open_paraview_button)
-
         self.export_results_button = QPushButton("Save Results")
         self.export_results_button.setProperty("variant", "primary")
         self.export_results_button.clicked.connect(self.export_results)
@@ -1414,7 +1477,7 @@ class MainWindow(QMainWindow):
         self.postprocess_stack = QStackedWidget()
         self.postprocess_stack.setObjectName("PreviewSurface")
         self.postprocess_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.postprocess_label = self._create_image_viewer("Post-process output will appear here.")
+        self.postprocess_label = self._create_image_viewer("Post-process output will appear here.", fixed_fit=True)
         self.postprocess_curve_canvas = CurveCanvas()
         self.postprocess_curve_canvas.setObjectName("CurveCanvas")
         self.postprocess_curve_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -1504,31 +1567,18 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(
             f"""
             QWidget#AppRoot {{
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #d8e2ec,
-                    stop:0.45 #e2e9f1,
-                    stop:1 #d2dde8
-                );
+                background: #dbe3eb;
             }}
             QWidget#HeaderCard,
             QWidget#PanelCard,
             QWidget#PreviewCard,
             QWidget#ToolbarCard {{
-                background: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #f4f8fc,
-                    stop:1 #e7eef5
-                );
+                background: #edf3f8;
                 border: 1px solid #bccbda;
                 border-radius: 18px;
             }}
             QWidget#NestedPreviewCard {{
-                background: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #f8fbfe,
-                    stop:1 #edf3f9
-                );
+                background: #f4f7fa;
                 border: 1px solid #cad4df;
                 border-radius: 16px;
             }}
@@ -1566,11 +1616,7 @@ class MainWindow(QMainWindow):
             }}
             QLabel#CaseStatusBadge {{
                 color: #17324f;
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #dbe8f5,
-                    stop:1 #cfdeef
-                );
+                background: #d7e3ef;
                 border: 1px solid #aebfd3;
                 border-radius: 12px;
                 min-width: 470px;
@@ -1752,24 +1798,74 @@ class MainWindow(QMainWindow):
                 background: #cfe0f2;
             }}
             QPushButton[variant="primary"] {{
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #255e95,
-                    stop:1 #1a4a7c
-                );
+                background: #1f5688;
                 border: 1px solid #1a4d81;
                 color: #ffffff;
             }}
             QPushButton[variant="primary"]:hover {{
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #2d69a1,
-                    stop:1 #205686
-                );
+                background: #174973;
             }}
             QPushButton[variant="secondary"] {{
                 background: #e8eff6;
                 color: #1c3a56;
+            }}
+            QPushButton[subtle_button="true"] {{
+                min-height: 18px;
+                padding: 4px 10px;
+                border-radius: 9px;
+                border: 1px solid #c6d2dd;
+                background: #eef3f7;
+                color: #607284;
+                font-size: 13px;
+                font-weight: 500;
+            }}
+            QPushButton[subtle_button="true"]:hover {{
+                background: #e4ebf2;
+                color: #4c6074;
+            }}
+            QPushButton[subtle_button="true"][toggle_button="true"]:checked {{
+                background: #dce7f2;
+                border: 1px solid #a8bfd6;
+                color: #37526d;
+            }}
+            QPushButton[subtle_button="true"][toggle_button="true"]:checked:hover {{
+                background: #d3e0ed;
+            }}
+            QToolButton[subtle_tool_button="true"] {{
+                min-height: 18px;
+                padding: 4px 10px;
+                border-radius: 9px;
+                border: 1px solid #c6d2dd;
+                background: #eef3f7;
+                color: #6c7d8f;
+                font-size: 12px;
+                font-weight: 500;
+            }}
+            QToolButton[subtle_tool_button="true"]:hover {{
+                background: #e4ebf2;
+                color: #55687c;
+            }}
+            QToolButton[subtle_tool_button="true"]::menu-indicator {{
+                image: none;
+                width: 0px;
+            }}
+            QMenu#HeaderMenu {{
+                background: #f8fbfe;
+                border: 1px solid #c2ced9;
+                border-radius: 10px;
+                padding: 6px;
+            }}
+            QMenu#HeaderMenu::item {{
+                padding: 7px 24px 7px 12px;
+                border-radius: 7px;
+                color: #21384f;
+            }}
+            QMenu#HeaderMenu::item:selected {{
+                background: #dde8f3;
+            }}
+            QMenu#HeaderMenu::indicator {{
+                width: 14px;
+                height: 14px;
             }}
             QPushButton[variant="danger"] {{
                 background: #f8e7e4;
@@ -1793,11 +1889,7 @@ class MainWindow(QMainWindow):
             }}
             QProgressBar::chunk {{
                 border-radius: 7px;
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #5e8fbe,
-                    stop:1 #1d598e
-                );
+                background: #2f699e;
             }}
             QHeaderView::section {{
                 background: #dfe7ef;
@@ -1860,23 +1952,6 @@ class MainWindow(QMainWindow):
             """
         )
         self._apply_responsive_layout()
-
-    def _apply_depth_effects(self):
-        for widget in (
-            self.header_card,
-            self.controls_card,
-            self.mesh_left_panel,
-            self.mesh_preview_card,
-            self.compute_left_panel,
-            self.compute_preview_card,
-            self.postprocess_toolbar_card,
-        ):
-            shadow = QGraphicsDropShadowEffect(self)
-            shadow.setBlurRadius(28)
-            shadow.setOffset(0, 8)
-            shadow.setColor(QColor(22, 42, 66, 28))
-            widget.setGraphicsEffect(shadow)
-        self.toast_label = self._build_toast_label(self.centralWidget())
 
     def _ensure_opacity_effect(self, widget: QWidget):
         effect = widget.graphicsEffect()
@@ -1972,8 +2047,6 @@ class MainWindow(QMainWindow):
             self.scan_add_button,
             self.scan_remove_button,
             self.scan_reset_button,
-            self.keep_cache_button,
-            self.open_paraview_button,
             self.export_results_button,
         ):
             button.installEventFilter(self)
@@ -2254,8 +2327,7 @@ class MainWindow(QMainWindow):
         self.scan_reset_button.setMinimumWidth(0 if compact_actions else 120)
         self.run_button.setMinimumWidth(0 if compact_actions else 110)
         self.stop_button.setMinimumWidth(0 if compact_actions else 110)
-        self.keep_cache_button.setMinimumWidth(0 if compact_actions else 170)
-        self.open_paraview_button.setMinimumWidth(0 if compact_actions else 150)
+        self.more_button.setMinimumWidth(0 if compact_actions else 64)
         self.export_results_button.setMinimumWidth(0 if compact_actions else 120)
 
     def toggle_compute_curve_card(self):
@@ -2266,17 +2338,18 @@ class MainWindow(QMainWindow):
 
     def _sync_transient_cache_button(self):
         enabled = bool(self.keep_transient_results)
-        self.keep_cache_button.blockSignals(True)
-        self.keep_cache_button.setChecked(enabled)
-        self.keep_cache_button.blockSignals(False)
-        self.keep_cache_button.setToolTip(
+        self.keep_cache_action.blockSignals(True)
+        self.keep_cache_action.setChecked(enabled)
+        self.keep_cache_action.blockSignals(False)
+        self.keep_cache_action.setText("Keep Temp Cache On" if enabled else "Keep Temp Cache Off")
+        self.more_button.setToolTip(
             "Troubleshooting mode is on. Current mesh and compute cache will be kept after restart."
             if enabled
             else "Troubleshooting mode is off. Current mesh and compute cache will be purged on restart."
         )
-        self.keep_cache_button.setText("Keep Temp Cache On" if enabled else "Keep Temp Cache Off")
-        self.style().unpolish(self.keep_cache_button)
-        self.style().polish(self.keep_cache_button)
+        self.more_button.setText("More")
+        self.style().unpolish(self.more_button)
+        self.style().polish(self.more_button)
 
     def on_keep_cache_toggled(self, checked: bool):
         self.keep_transient_results = bool(checked)
@@ -3102,7 +3175,6 @@ class MainWindow(QMainWindow):
         self._sync_visible_fields()
         self._update_input_enabled_state()
         self._update_tab_availability()
-        self._update_paraview_button()
 
     def _update_input_enabled_state(self):
         case = self._current_case_def()
@@ -3143,7 +3215,6 @@ class MainWindow(QMainWindow):
         self.run_button.setEnabled(case.is_ready and (not case.mesh_stage_enabled or state["mesh_ready"]))
         self.stop_button.setEnabled(False)
         self._update_tab_availability()
-        self._update_paraview_button()
 
     def _set_busy_state(self, run_mode: str, case_id: str):
         self.active_run_mode = run_mode
@@ -3251,7 +3322,6 @@ class MainWindow(QMainWindow):
             self.postprocess_stack.setCurrentWidget(self.postprocess_label)
             self._set_label_image(self.postprocess_label, image_path, placeholder, animate=False)
         self.postprocess_detail_label.setText(self._postprocess_detail_text(view_name, selected_path))
-        self._update_paraview_button()
 
     def _visible_image_path(self, view_name: str):
         state = self._current_state()
@@ -3342,11 +3412,6 @@ class MainWindow(QMainWindow):
             state["history_selection"][view_name] = None
         self.history_combo.setEnabled(bool(paths))
         self._syncing_history = False
-
-    def _update_paraview_button(self):
-        latest_vtk = self._current_state()["latest_vtk_path"]
-        enabled = bool(self.paraview_executable and latest_vtk and Path(latest_vtk).exists())
-        self.open_paraview_button.setEnabled(enabled)
 
     def _scroll_log_to_end(self):
         bar = self.log_box.verticalScrollBar()
@@ -3511,7 +3576,6 @@ class MainWindow(QMainWindow):
         state["latest_vtk_path"] = vtk_path
         if self.active_case_id == self.current_case:
             self.vtk_label.setText(f"Latest VTK: {vtk_path}")
-            self._update_paraview_button()
 
     def update_displacement_path(self, image_path: str):
         path = Path(image_path)
@@ -3729,19 +3793,6 @@ class MainWindow(QMainWindow):
         if animate and self._animations_enabled():
             self._animate_widget_opacity(self.postprocess_detail_label, start=0.36, end=1.0, duration=ANIMATION_MEDIUM_MS)
 
-    def open_in_paraview(self):
-        latest_vtk = self._current_state()["latest_vtk_path"]
-        if not self.paraview_executable:
-            QMessageBox.warning(self, "ParaView Unavailable", "The `paraview` executable was not found in PATH.")
-            return
-        if not latest_vtk or not Path(latest_vtk).exists():
-            QMessageBox.warning(self, "VTK Unavailable", "No VTK file is available for the current case.")
-            return
-        try:
-            subprocess.Popen([self.paraview_executable, latest_vtk], cwd=str(REPO_ROOT))
-        except Exception as exc:
-            QMessageBox.critical(self, "ParaView Launch Failed", str(exc))
-
     def export_results(self):
         state = self._current_state()
         manifest = state["manifest"]
@@ -3862,11 +3913,9 @@ class MainWindow(QMainWindow):
             self.generate_mesh_button,
             self.run_button,
             self.stop_button,
-            self.keep_cache_button,
             self.scan_add_button,
             self.scan_remove_button,
             self.scan_reset_button,
-            self.open_paraview_button,
             self.export_results_button,
         ):
             if not button.property("floating"):

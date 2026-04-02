@@ -29,7 +29,7 @@ class VisualExportLayoutTests(unittest.TestCase):
             _export_protocol_panel(
                 output_path,
                 snaps=[snap],
-                col_titles=["Point C (Final)"],
+                col_titles=[],
                 row_specs=[
                     ("d", "turbo", mpl.colors.Normalize(0.0, 1.0), "Damage field $d$", "$d$"),
                     ("svm", "plasma", mpl.colors.Normalize(0.0, 40.0), "Von Mises stress", "MPa"),

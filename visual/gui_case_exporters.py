@@ -600,9 +600,6 @@ def _export_protocol_panel(
         )
         _configure_horizontal_colorbar(colorbar, norm, cbar_title)
 
-    if col_titles:
-        figure.suptitle(col_titles[-1], y=0.965, fontsize=22)
-
     return _save_figure(figure, output_path)
 
 
@@ -781,11 +778,7 @@ def export_sent_panels(
     panel_path = _export_protocol_panel(
         output_dir / "sent_field_panel.png",
         snaps=snaps,
-        col_titles=[
-            "Point A (Onset)",
-            "Point B (Post-Peak)",
-            "Point C (Final)",
-        ][: len(snaps)],
+        col_titles=[],
         row_specs=[
             ("d", "turbo", mpl.colors.Normalize(0.0, 1.0), r"Damage field $d$", "$d$"),
             ("svm", "plasma", mpl.colors.Normalize(0.0, stress_max), r"Von Mises stress $\sigma_\mathrm{vm}$", "MPa"),
@@ -849,11 +842,7 @@ def export_sens_panels(
     panel_path = _export_protocol_panel(
         output_dir / "sens_field_panel.png",
         snaps=snaps,
-        col_titles=[
-            "Point A (Onset)",
-            "Point B (Post-Peak)",
-            "Point C (Final)",
-        ][: len(snaps)],
+        col_titles=[],
         row_specs=[
             ("d", "turbo", mpl.colors.Normalize(0.0, 1.0), r"Damage field $d$", "$d$"),
             ("svm", "plasma", mpl.colors.Normalize(0.0, stress_max), r"Von Mises stress $\sigma_\mathrm{vm}$", "MPa"),

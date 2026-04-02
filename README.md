@@ -13,15 +13,24 @@ GUI 主入口是 [gui/gui_main.py](/home/dazhi_zhao/peng_pf_ui/gui/gui_main.py)�
 
 GUI 工作流固定为 `Mesh -> Compute -> Post-process`。参数面板按 `Geometry / Mesh / Material / Phase Field / Loading / Smoke` 分组；结果视图根据算例能力切换为 `Mesh`、`Damage`、`Displacement`、`Curve`、`Summary Table`、`Comparison Curve`、`Visual Export`。运行时会保存参数副本、结果清单、原始输出文件和导出图，方便回看最近一次结果，也方便后续脚本处理。
 
-当前进展：compute 页已统一为上排 `Damage / Displacement`、下排 `Live Curve` 的实时 panel；页头补了 `Keep Temp Cache` 临时排查开关；实时 `Damage / Displacement` contour 已锁定为固定适配预览，隐藏滚动条并禁用实时缩放切换，避免运行过程中出现滑条和遮挡。  
-下一步：继续观察固定 contour 预览在极窄窗口、高 DPI 和不同 case 下的留白、色标与刷新稳定性。
+当前进展：`Post-process` 已改为固定适配预览，去掉内部滑条并禁用该页 `Ctrl` 缩放链路；`Open In ParaView` 已移除；协议类 `Visual Export` 已去掉点位标题并保持横向 `1x2`。  
+当前进展补充：页头缓存开关已收进 `More` 菜单，不再直接占用主界面视觉位置。  
+当前进展补充：界面卡片阴影与残余渐变已全部移除，整体改为更纯的扁平化纯色设计。  
+当前进展补充：新增 [install.md](install.md)，并把 GUI 的 Julia 环境解析改为优先跟随当前激活的 conda 环境，不再依赖作者本机绝对路径。  
+当前进展补充：`install.md` 已补充 Linux 桌面字体与 `fontconfig` 前提，明确 `Times` 系字体回退链和检查命令。  
+当前进展补充：`install.md` 已补充 GR 系统运行库、Julia 官方 `juliaup` 安装路径和常见故障排查。  
+当前进展补充：仓库根目录已新增 [Project.toml](/home/dazhi_zhao/peng_pf_ui/Project.toml)，GUI 在未显式设置 `JULIA_PROJECT` 时会优先使用仓库自带 Julia 项目。  
+下一步：继续观察 `Post-process` 预览稳定性，并考虑补统一字体回退配置与可选 `Manifest.toml`，进一步减少首次安装和字体漂移问题。
 
 ## 环境
 
 - Python 环境名：`gui_envs`
 - 环境文件：[environment.yml](/home/dazhi_zhao/peng_pf_ui/environment.yml)
-- Python 侧核心依赖：`PyQt5`、`matplotlib`、`meshio`、`numpy`
+- Python 侧核心依赖：`PyQt5`、`matplotlib`、`meshio`、`numpy`、`pandas`、`scipy`
 - Julia 使用系统安装，不通过 conda 提供
+- Julia 项目文件：[Project.toml](/home/dazhi_zhao/peng_pf_ui/Project.toml)
+- 新机器安装步骤见 [install.md](install.md)
+- 新机器建议同时安装系统 `fontconfig` 和 serif 字体包，保证 GUI、matplotlib 与 Julia/GR 图面字体一致
 
 ## 输入与输出
 
@@ -36,9 +45,10 @@ Linux + Python 运行方式：激活 `gui_envs` 后启动主界面
 完整 CLI：
 
 ```bash
-eval "$(/home/dazhi_zhao/miniforge3/bin/conda shell.bash hook)"
+cd /path/to/peng_pf_ui
+eval "$("$HOME/miniforge3/bin/conda" shell.bash hook)"
 conda activate gui_envs
-python /home/dazhi_zhao/peng_pf_ui/gui/gui_main.py
+python gui/gui_main.py
 ```
 
 Julia 后端输入：JSON 参数文件  
@@ -47,7 +57,8 @@ Linux + Python 环境下运行方式：在已准备好 Julia 环境后直接调�
 完整 CLI：
 
 ```bash
-eval "$(/home/dazhi_zhao/miniforge3/bin/conda shell.bash hook)"
+cd /path/to/peng_pf_ui
+eval "$("$HOME/miniforge3/bin/conda" shell.bash hook)"
 conda activate gui_envs
-julia /home/dazhi_zhao/peng_pf_ui/gui/gui_solver.jl /home/dazhi_zhao/peng_pf_ui/gui/params_default.json
+julia gui/gui_solver.jl gui/params_default.json
 ```
