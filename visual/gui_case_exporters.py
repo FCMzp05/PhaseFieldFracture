@@ -765,11 +765,17 @@ def export_sent_panels(
         points, cells, tri = _triangulation(mesh)
         damage = _scalar_field(mesh, "d")
         displacement = _vector_field(mesh, "uh", 2)
+        displacement_mag = np.linalg.norm(displacement, axis=1) * 1.0e3
         von_mises = _compute_protocol_von_mises(points, cells, displacement, damage, young_modulus, poisson_ratio)
         displacement_um = float(np.nanmax(displacement[:, 1]) * 1.0e3)
-        snaps.append({"tri": tri, "d": damage, "svm": von_mises, "note": rf"$u_y={displacement_um:.2f}\ \mu m$"})
+        snaps.append({"tri": tri, "d": damage, "umag": displacement_mag, "svm": von_mises, "note": rf"$u_y={displacement_um:.2f}\ \mu m$"})
         marker_steps.append(_extract_int_from_name(path, "step"))
 
+    displacement_max = _rounded_percentile_max(
+        np.concatenate([snap["umag"] for snap in snaps]),
+        99.0,
+        floor=1.0e-6,
+    )
     stress_max = _rounded_percentile_max(np.concatenate([snap["svm"] for snap in snaps]), 98.0, floor=10.0, round_to=200.0)
     panel_path = _export_protocol_panel(
         output_dir / "sent_field_panel.png",
@@ -777,6 +783,7 @@ def export_sent_panels(
         col_titles=[],
         row_specs=[
             ("d", "turbo", mpl.colors.Normalize(0.0, 1.0), r"Damage field $d$", "$d$"),
+            ("umag", "viridis", mpl.colors.Normalize(0.0, displacement_max), r"Displacement magnitude $|u|$", r"$\mu m$"),
             ("svm", "plasma", mpl.colors.Normalize(0.0, stress_max), r"Von Mises stress $\sigma_\mathrm{vm}$", "MPa"),
         ],
         note_key="note",
@@ -829,11 +836,17 @@ def export_sens_panels(
         points, cells, tri = _triangulation(mesh)
         damage = _scalar_field(mesh, "d")
         displacement = _vector_field(mesh, "uh", 2)
+        displacement_mag = np.linalg.norm(displacement, axis=1) * 1.0e3
         von_mises = _compute_protocol_von_mises(points, cells, displacement, damage, young_modulus, poisson_ratio)
         displacement_um = float(np.nanmax(displacement[:, 0]) * 1.0e3)
-        snaps.append({"tri": tri, "d": damage, "svm": von_mises, "note": rf"$u_x={displacement_um:.2f}\ \mu m$"})
+        snaps.append({"tri": tri, "d": damage, "umag": displacement_mag, "svm": von_mises, "note": rf"$u_x={displacement_um:.2f}\ \mu m$"})
         marker_steps.append(_extract_int_from_name(path, "step"))
 
+    displacement_max = _rounded_percentile_max(
+        np.concatenate([snap["umag"] for snap in snaps]),
+        99.0,
+        floor=1.0e-6,
+    )
     stress_max = _rounded_percentile_max(np.concatenate([snap["svm"] for snap in snaps]), 98.0, floor=10.0, round_to=200.0)
     panel_path = _export_protocol_panel(
         output_dir / "sens_field_panel.png",
@@ -841,6 +854,7 @@ def export_sens_panels(
         col_titles=[],
         row_specs=[
             ("d", "turbo", mpl.colors.Normalize(0.0, 1.0), r"Damage field $d$", "$d$"),
+            ("umag", "viridis", mpl.colors.Normalize(0.0, displacement_max), r"Displacement magnitude $|u|$", r"$\mu m$"),
             ("svm", "plasma", mpl.colors.Normalize(0.0, stress_max), r"Von Mises stress $\sigma_\mathrm{vm}$", "MPa"),
         ],
         note_key="note",

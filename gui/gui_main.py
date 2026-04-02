@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -44,6 +45,7 @@ from PyQt5.QtWidgets import (
     QMenu,
     QShortcut,
     QScrollArea,
+    QSlider,
     QSizePolicy,
     QStackedWidget,
     QTabWidget,
@@ -255,6 +257,11 @@ def first_existing(*paths: Path) -> Path | None:
         if path.exists():
             return path
     return None
+
+
+def extract_numeric_suffix(path_like: str | Path) -> int | None:
+    match = re.search(r"(\d+)(?=\.[^.]+$)", Path(path_like).name)
+    return int(match.group(1)) if match else None
 
 
 def sorted_existing(paths):
@@ -925,6 +932,8 @@ class MainWindow(QMainWindow):
         self._syncing_run_profile = False
         self._syncing_scan_table = False
         self._syncing_postprocess_view = False
+        self._syncing_postprocess_timeline = False
+        self._postprocess_timeline_paths: list[str] = []
         self._entrance_animation_started = False
         self._progress_animation = None
         self._button_hover_animations = {}
@@ -1481,7 +1490,35 @@ class MainWindow(QMainWindow):
         self.postprocess_stack = QStackedWidget()
         self.postprocess_stack.setObjectName("PreviewSurface")
         self.postprocess_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.postprocess_label = self._create_image_viewer("Post-process output will appear here.")
+        self.postprocess_image_panel = QWidget()
+        self.postprocess_image_panel.setObjectName("PostprocessImagePanel")
+        postprocess_image_layout = QVBoxLayout(self.postprocess_image_panel)
+        postprocess_image_layout.setContentsMargins(0, 0, 0, 0)
+        postprocess_image_layout.setSpacing(10)
+        self.postprocess_label = self._create_image_viewer("Post-process output will appear here.", fixed_fit=True)
+        postprocess_image_layout.addWidget(self.postprocess_label, stretch=1)
+        self.postprocess_timeline_row = QWidget()
+        postprocess_timeline_layout = QHBoxLayout(self.postprocess_timeline_row)
+        postprocess_timeline_layout.setContentsMargins(0, 0, 0, 0)
+        postprocess_timeline_layout.setSpacing(10)
+        self.postprocess_timeline_title = QLabel("Timeline")
+        self.postprocess_timeline_title.setObjectName("ControlLabel")
+        self.postprocess_timeline_slider = QSlider(Qt.Horizontal)
+        self.postprocess_timeline_slider.setMinimum(0)
+        self.postprocess_timeline_slider.setMaximum(0)
+        self.postprocess_timeline_slider.setSingleStep(1)
+        self.postprocess_timeline_slider.setPageStep(1)
+        self.postprocess_timeline_slider.setTracking(True)
+        self.postprocess_timeline_slider.valueChanged.connect(self.on_postprocess_timeline_changed)
+        self.postprocess_timeline_value_label = QLabel("Frame 1 / 1")
+        self.postprocess_timeline_value_label.setObjectName("MetaCard")
+        self.postprocess_timeline_value_label.setMinimumWidth(180)
+        self.postprocess_timeline_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        postprocess_timeline_layout.addWidget(self.postprocess_timeline_title)
+        postprocess_timeline_layout.addWidget(self.postprocess_timeline_slider, stretch=1)
+        postprocess_timeline_layout.addWidget(self.postprocess_timeline_value_label)
+        self.postprocess_timeline_row.hide()
+        postprocess_image_layout.addWidget(self.postprocess_timeline_row)
         self.postprocess_curve_canvas = CurveCanvas()
         self.postprocess_curve_canvas.setObjectName("CurveCanvas")
         self.postprocess_curve_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -1490,7 +1527,7 @@ class MainWindow(QMainWindow):
         self.postprocess_table.setSelectionMode(QTableWidget.NoSelection)
         self.postprocess_table.verticalHeader().setVisible(False)
         self.postprocess_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.postprocess_stack.addWidget(self.postprocess_label)
+        self.postprocess_stack.addWidget(self.postprocess_image_panel)
         self.postprocess_stack.addWidget(self.postprocess_curve_canvas)
         self.postprocess_stack.addWidget(self.postprocess_table)
         toolbar_layout.addWidget(self.postprocess_stack, stretch=1)
@@ -2322,6 +2359,7 @@ class MainWindow(QMainWindow):
             self.compute_curve_card.setMaximumHeight(300 if stacked_main else 340)
             self.curve_surface.setVisible(True)
         self.postprocess_stack.setMinimumHeight(postprocess_surface_min_height)
+        self.postprocess_image_panel.setMinimumHeight(postprocess_surface_min_height)
         self.postprocess_label.setMinimumHeight(postprocess_surface_min_height)
         self.postprocess_curve_canvas.setMinimumHeight(max(curve_min_height, 200 if compact_actions else curve_min_height))
         self.postprocess_table.setMinimumHeight(220 if compact_actions else 340)
@@ -3305,6 +3343,45 @@ class MainWindow(QMainWindow):
             animate=False,
         )
 
+    def _timeline_views(self):
+        return {"Damage", "Displacement"}
+
+    def _timeline_label_text(self, path: Path, frame_index: int, frame_count: int):
+        step_value = extract_numeric_suffix(path)
+        if step_value is None:
+            return f"Frame {frame_index + 1}/{frame_count} | {path.name}"
+        return f"Frame {frame_index + 1}/{frame_count} | Step {step_value}"
+
+    def _sync_postprocess_timeline(self, view_name: str, paths, selected_path: Path | None):
+        timeline_enabled = view_name in self._timeline_views() and len(paths) > 1
+        self._postprocess_timeline_paths = [str(path) for path in paths]
+        if not timeline_enabled:
+            self._syncing_postprocess_timeline = True
+            self.postprocess_timeline_slider.setMinimum(0)
+            self.postprocess_timeline_slider.setMaximum(0)
+            self.postprocess_timeline_slider.setValue(0)
+            self._syncing_postprocess_timeline = False
+            self.postprocess_timeline_value_label.setText("Frame 1 / 1")
+            self.postprocess_timeline_row.hide()
+            return
+
+        selected_path_str = str(selected_path) if selected_path is not None else self._postprocess_timeline_paths[-1]
+        try:
+            selected_index = self._postprocess_timeline_paths.index(selected_path_str)
+        except ValueError:
+            selected_index = len(self._postprocess_timeline_paths) - 1
+
+        self._syncing_postprocess_timeline = True
+        self.postprocess_timeline_title.setText(f"{view_name} Timeline")
+        self.postprocess_timeline_slider.setRange(0, len(self._postprocess_timeline_paths) - 1)
+        self.postprocess_timeline_slider.setPageStep(max(1, len(self._postprocess_timeline_paths) // 8))
+        self.postprocess_timeline_slider.setValue(selected_index)
+        self._syncing_postprocess_timeline = False
+        self.postprocess_timeline_value_label.setText(
+            self._timeline_label_text(Path(self._postprocess_timeline_paths[selected_index]), selected_index, len(self._postprocess_timeline_paths))
+        )
+        self.postprocess_timeline_row.show()
+
     def _render_postprocess_view(self, view_name: str, selected_path: str | None):
         if view_name == "Curve":
             self.postprocess_stack.setCurrentWidget(self.postprocess_curve_canvas)
@@ -3314,21 +3391,27 @@ class MainWindow(QMainWindow):
             else:
                 x_values, y_values = [], []
             self.postprocess_curve_canvas.update_curve(x_values, y_values)
+            self._sync_postprocess_timeline(view_name, [], None)
         elif view_name == "Summary Table":
             self.postprocess_stack.setCurrentWidget(self.postprocess_table)
             if selected_path:
                 self._populate_summary_table(Path(selected_path))
             else:
                 self._populate_summary_table(None)
+            self._sync_postprocess_timeline(view_name, [], None)
         elif view_name == "Comparison Curve":
             self.postprocess_stack.setCurrentWidget(self.postprocess_curve_canvas)
             comparison_curve_kind = self._current_case_def().comparison_curve_kind or self._current_case_def().curve_kind
             self.postprocess_curve_canvas.set_curve_kind(comparison_curve_kind)
             self.postprocess_curve_canvas.update_curves(self._comparison_curve_series(self.current_case))
+            self._sync_postprocess_timeline(view_name, [], None)
         else:
             image_path, placeholder = self._visible_image_path(view_name)
-            self.postprocess_stack.setCurrentWidget(self.postprocess_label)
+            timeline_paths = self._history_paths_for_case(self.current_case, view_name)
+            selected_image_path = Path(selected_path) if selected_path else image_path
+            self.postprocess_stack.setCurrentWidget(self.postprocess_image_panel)
             self._set_label_image(self.postprocess_label, image_path, placeholder, animate=False)
+            self._sync_postprocess_timeline(view_name, timeline_paths, selected_image_path)
         detail_text = self._postprocess_detail_text(view_name, selected_path)
         self.postprocess_detail_label.setText(detail_text)
         self.postprocess_detail_label.setToolTip(selected_path or detail_text)
@@ -3536,6 +3619,19 @@ class MainWindow(QMainWindow):
         view_name = self.postprocess_view_combo.currentText()
         self._current_state()["history_selection"][view_name] = self.history_combo.currentData()
         self.refresh_postprocess_view(prefer_latest=False, animate=True)
+
+    def on_postprocess_timeline_changed(self, frame_index: int):
+        if self._syncing_postprocess_timeline:
+            return
+        if frame_index < 0 or frame_index >= self.history_combo.count():
+            return
+        if self.history_combo.currentIndex() != frame_index:
+            self.history_combo.setCurrentIndex(frame_index)
+            return
+        if 0 <= frame_index < len(self._postprocess_timeline_paths):
+            self.postprocess_timeline_value_label.setText(
+                self._timeline_label_text(Path(self._postprocess_timeline_paths[frame_index]), frame_index, len(self._postprocess_timeline_paths))
+            )
 
     def append_log(self, text: str):
         state = self._active_state()

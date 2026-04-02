@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import QApplication
 
 import gui.gui_main as gui_main
 from gui.run_manifest import RunManifest, write_manifest
+from visual import gui_case_exporters
 
 
 class GuiPostprocessTests(unittest.TestCase):
@@ -75,7 +76,7 @@ class GuiPostprocessTests(unittest.TestCase):
     def _view_names(self):
         return [self.window.postprocess_view_combo.itemText(index) for index in range(self.window.postprocess_view_combo.count())]
 
-    def _write_postprocess_manifest(self, case_id: str):
+    def _write_postprocess_manifest(self, case_id: str, *, damage_frames: int = 0, displacement_frames: int = 0):
         native_dir = self.temp_path / f"{case_id}_native"
         native_dir.mkdir(parents=True, exist_ok=True)
 
@@ -86,6 +87,22 @@ class GuiPostprocessTests(unittest.TestCase):
         curve_csv = native_dir / "F_u_curve_SENT.csv"
         mesh_msh.write_text("mesh", encoding="utf-8")
         curve_csv.write_text("u_mm,F_kN\n0.0,0.0\n0.1,2.0\n", encoding="utf-8")
+
+        snapshot_paths = []
+        for frame_index in range(1, damage_frames + 1):
+            snapshot_path = native_dir / f"snap_SENT_{frame_index:04d}.png"
+            image = QImage(640, 480, QImage.Format_RGB32)
+            image.fill(QColor("#f6d9d6"))
+            self.assertTrue(image.save(str(snapshot_path)))
+            snapshot_paths.append(str(snapshot_path))
+
+        displacement_paths = []
+        for frame_index in range(1, displacement_frames + 1):
+            displacement_frame_path = native_dir / f"u_mag_SENT_{frame_index:04d}.png"
+            image = QImage(640, 480, QImage.Format_RGB32)
+            image.fill(QColor("#d6e6f6"))
+            self.assertTrue(image.save(str(displacement_frame_path)))
+            displacement_paths.append(str(displacement_frame_path))
 
         for image_path, color in (
             (mesh_png, QColor("#e2ebf4")),
@@ -109,9 +126,10 @@ class GuiPostprocessTests(unittest.TestCase):
             runtime_params_path="",
             native_output_dir=str(native_dir),
             mesh_paths=[str(mesh_msh), str(mesh_png)],
+            snapshot_paths=snapshot_paths,
             curve_csv_paths=[str(curve_csv)],
             damage_paths=[str(damage_png)],
-            displacement_paths=[str(displacement_png)],
+            displacement_paths=displacement_paths + [str(displacement_png)],
         )
         write_manifest(self.manifest_dir / f"{case_id}_latest.json", manifest)
 
@@ -321,7 +339,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertFalse(isinstance(self.window.postprocess_stack.graphicsEffect(), QGraphicsOpacityEffect))
         self.assertIs(self.window.postprocess_stack.currentWidget(), self.window.postprocess_curve_canvas)
 
-    def test_postprocess_image_viewer_supports_ctrl_wheel_zoom(self):
+    def test_postprocess_image_viewer_hides_internal_scrollbars_and_ignores_ctrl_wheel(self):
         self._write_postprocess_manifest("sent_tension")
         self._open_window()
         self.window.resize(1280, 900)
@@ -334,8 +352,10 @@ class GuiPostprocessTests(unittest.TestCase):
         viewer = self.window.postprocess_label
         self.assertTrue(viewer.has_image())
         self._flush_events()
-        self.assertEqual(viewer.scroll_area.horizontalScrollBarPolicy(), Qt.ScrollBarAsNeeded)
-        self.assertEqual(viewer.scroll_area.verticalScrollBarPolicy(), Qt.ScrollBarAsNeeded)
+        self.assertEqual(viewer.scroll_area.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
+        self.assertEqual(viewer.scroll_area.verticalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
+        self.assertFalse(viewer.scroll_area.horizontalScrollBar().isVisible())
+        self.assertFalse(viewer.scroll_area.verticalScrollBar().isVisible())
 
         start_scale = viewer._current_scale_factor()
         wheel_event = QWheelEvent(
@@ -351,9 +371,9 @@ class GuiPostprocessTests(unittest.TestCase):
         QApplication.sendEvent(viewer.scroll_area.viewport(), wheel_event)
         self._flush_events()
 
-        self.assertGreater(viewer._current_scale_factor(), start_scale)
+        self.assertEqual(viewer._current_scale_factor(), start_scale)
 
-    def test_postprocess_image_viewer_supports_keyboard_zoom_shortcuts(self):
+    def test_postprocess_image_viewer_ignores_keyboard_zoom_shortcuts(self):
         self._write_postprocess_manifest("sent_tension")
         self._open_window()
         self.window.resize(1280, 900)
@@ -371,8 +391,7 @@ class GuiPostprocessTests(unittest.TestCase):
         fit_scale = viewer._current_scale_factor()
         QTest.keyClick(viewer, Qt.Key_Equal, Qt.ControlModifier)
         self._flush_events()
-        zoomed_scale = viewer._current_scale_factor()
-        self.assertGreater(zoomed_scale, fit_scale)
+        self.assertEqual(viewer._current_scale_factor(), fit_scale)
 
         QTest.keyClick(viewer, Qt.Key_0, Qt.ControlModifier)
         self._flush_events()
@@ -380,7 +399,28 @@ class GuiPostprocessTests(unittest.TestCase):
 
         QTest.keyClick(viewer, Qt.Key_1, Qt.ControlModifier)
         self._flush_events()
-        self.assertAlmostEqual(viewer._current_scale_factor(), 1.0, places=2)
+        self.assertEqual(viewer._current_scale_factor(), fit_scale)
+
+    def test_postprocess_damage_timeline_slider_tracks_history_frames(self):
+        self._write_postprocess_manifest("sent_tension", damage_frames=3)
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
+        self.window.tabs.setCurrentIndex(self.window.post_tab_index)
+        self.window.postprocess_view_combo.setCurrentText("Damage")
+        self._flush_events()
+
+        self.assertTrue(self.window.postprocess_timeline_row.isVisible())
+        self.assertEqual(self.window.postprocess_timeline_slider.maximum(), 3)
+        self.assertIn("Frame 4/4", self.window.postprocess_timeline_value_label.text())
+
+        self.window.postprocess_timeline_slider.setValue(1)
+        self._flush_events()
+
+        self.assertEqual(self.window.history_combo.currentIndex(), 1)
+        self.assertTrue(str(self.window.history_combo.currentData()).endswith("snap_SENT_0002.png"))
+        self.assertIn("snap_SENT_0002.png", self.window.postprocess_detail_label.text())
 
     def test_postprocess_tab_stays_scrollable_in_compact_window(self):
         self._open_window()
@@ -428,6 +468,78 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertLess(self.window.postprocess_label.minimumHeight(), damage_min_height)
         self.assertFalse(self.window.vtk_label.isVisible())
         self.assertEqual(self.window.postprocess_detail_label.text(), f"Visual Export: {export_path.name}")
+        self.assertFalse(self.window.postprocess_timeline_row.isVisible())
+
+    def test_protocol_visual_export_adds_displacement_panel(self):
+        native_dir = self.temp_path / "sent_native"
+        output_dir = self.temp_path / "visual_out"
+        mesh_path = native_dir / "mesh_SENT.msh"
+        curve_path = native_dir / "F_u_curve_SENT.csv"
+        onset_path = native_dir / "result_onset_step0001.vtu"
+        drop_path = native_dir / "result_drop_step0002.vtu"
+        final_path = native_dir / "result_final_step0003.vtu"
+        native_dir.mkdir(parents=True, exist_ok=True)
+
+        captured = {}
+
+        def fake_export_protocol_panel(output_path, **kwargs):
+            captured["row_specs"] = kwargs["row_specs"]
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text("panel", encoding="utf-8")
+            return output_path
+
+        with mock.patch.object(gui_case_exporters, "_load_runtime_params", return_value={}), mock.patch.object(
+            gui_case_exporters,
+            "_first_existing",
+            side_effect=[mesh_path, curve_path, onset_path, final_path],
+        ), mock.patch.object(gui_case_exporters, "_sorted_matches", return_value=[drop_path]), mock.patch.object(
+            gui_case_exporters, "meshio"
+        ) as meshio_mock, mock.patch.object(
+            gui_case_exporters,
+            "_triangulation",
+            return_value=(None, None, "tri"),
+        ), mock.patch.object(
+            gui_case_exporters,
+            "_scalar_field",
+            return_value=[0.0, 0.5, 1.0],
+        ), mock.patch.object(
+            gui_case_exporters,
+            "_vector_field",
+            return_value=gui_case_exporters.np.array([[0.0, 0.0], [0.01, 0.02], [0.02, 0.03]]),
+        ), mock.patch.object(
+            gui_case_exporters,
+            "_compute_protocol_von_mises",
+            return_value=gui_case_exporters.np.array([10.0, 20.0, 30.0]),
+        ), mock.patch.object(
+            gui_case_exporters,
+            "_extract_int_from_name",
+            side_effect=[1, 2, 3],
+        ), mock.patch.object(
+            gui_case_exporters,
+            "_rounded_percentile_max",
+            side_effect=[0.05, 40.0],
+        ), mock.patch.object(
+            gui_case_exporters,
+            "_export_protocol_panel",
+            side_effect=fake_export_protocol_panel,
+        ), mock.patch.object(
+            gui_case_exporters,
+            "_export_geometry_gallery",
+            return_value=output_dir / "sent_mesh_overview.png",
+        ), mock.patch.object(
+            gui_case_exporters,
+            "_protocol_curve_points",
+            return_value=([0.0, 1.0], [0.0, 2.0], []),
+        ), mock.patch.object(
+            gui_case_exporters,
+            "_export_line_chart",
+            return_value=output_dir / "sent_force_curve.png",
+        ):
+            meshio_mock.read.return_value = object()
+            outputs = gui_case_exporters.export_sent_panels(native_dir, output_dir)
+
+        self.assertEqual([spec[0] for spec in captured["row_specs"]], ["d", "umag", "svm"])
+        self.assertTrue(outputs["field_panel"].endswith("sent_field_panel.png"))
 
     def test_live_curve_card_can_collapse_and_restore(self):
         self._open_window()

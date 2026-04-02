@@ -21,8 +21,8 @@ GUI 工作流固定为 `Mesh -> Compute -> Post-process`。参数面板按 `Geom
 当前进展补充：`install.md` 已补充 GR 系统运行库、Julia 官方 `juliaup` 安装路径和常见故障排查。  
 当前进展补充：仓库根目录已新增 [Project.toml](/home/dazhi_zhao/peng_pf_ui/Project.toml)，GUI 在未显式设置 `JULIA_PROJECT` 时会优先使用仓库自带 Julia 项目。  
 当前进展补充：`Post-process` 的 `Visual Export` 视图已改为更紧凑的预览高度，并隐藏无关 `VTK` 信息；导出图中顶部列标题与协议曲线 `A/B/C` 标注已去掉。  
-当前进展补充：`Post-process` 图片浏览已恢复缩放，支持 `Ctrl+滚轮`、`Ctrl+=/-`、`Ctrl+0` 和 `Ctrl+1`。  
-下一步：继续观察 `Post-process` 在不同窗口尺寸下的预览稳定性与缩放手感，并考虑补统一字体回退配置与可选 `Manifest.toml`，进一步减少首次安装和字体漂移问题。
+当前进展补充：`Post-process` 的 `Damage / Displacement` 已改为可拖拽时间轴预览，协议类 `Visual Export` 的 `field panel` 已扩为横向 `1x3`，内容为 `damage / displacement magnitude / von Mises stress`。  
+下一步：继续观察时间轴在 batch benchmark 大量历史帧下的交互稳定性，并评估是否需要把 `Visual Export` 预览也统一成多图联动浏览。
 
 ## 环境
 
