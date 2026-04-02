@@ -54,6 +54,11 @@ class GuiPostprocessTests(unittest.TestCase):
         self.window = gui_main.MainWindow()
         self.app.processEvents()
 
+    def _flush_events(self):
+        self.app.processEvents()
+        QApplication.sendPostedEvents()
+        self.app.processEvents()
+
     def _select_case(self, case_id: str):
         case = gui_main.CASE_DEFINITIONS[case_id]
         self.window.current_category = case.category_id
@@ -133,7 +138,8 @@ class GuiPostprocessTests(unittest.TestCase):
         self._open_window()
         self.window.resize(1280, 900)
         self.window.show()
-        self.app.processEvents()
+        self.window.tabs.setCurrentIndex(self.window.mesh_tab_index)
+        self._flush_events()
 
         image_path = self.temp_path / "mesh_preview.png"
         image = QImage(320, 1400, QImage.Format_RGB32)
@@ -143,7 +149,7 @@ class GuiPostprocessTests(unittest.TestCase):
         viewer = self.window.mesh_preview_label
         self.window._set_label_image(viewer, image_path, "Mesh preview will appear here.", animate=False)
         viewer.show_actual_size()
-        self.app.processEvents()
+        self._flush_events()
 
         scrollbar = viewer.scroll_area.verticalScrollBar()
         self.assertGreater(scrollbar.maximum(), 0)
@@ -161,7 +167,8 @@ class GuiPostprocessTests(unittest.TestCase):
         self._open_window()
         self.window.resize(1280, 900)
         self.window.show()
-        self.app.processEvents()
+        self.window.tabs.setCurrentIndex(self.window.mesh_tab_index)
+        self._flush_events()
 
         image_path = self.temp_path / "mesh_preview_ctrl_zoom.png"
         image = QImage(640, 960, QImage.Format_RGB32)
@@ -171,7 +178,7 @@ class GuiPostprocessTests(unittest.TestCase):
         viewer = self.window.mesh_preview_label
         self.window._set_label_image(viewer, image_path, "Mesh preview will appear here.", animate=False)
         viewer.show_actual_size()
-        self.app.processEvents()
+        self._flush_events()
 
         start_scale = viewer._current_scale_factor()
         wheel_event = QWheelEvent(
@@ -193,7 +200,8 @@ class GuiPostprocessTests(unittest.TestCase):
         self._open_window()
         self.window.resize(1280, 900)
         self.window.show()
-        self.app.processEvents()
+        self.window.tabs.setCurrentIndex(self.window.mesh_tab_index)
+        self._flush_events()
 
         image_path = self.temp_path / "mesh_preview_effect.png"
         image = QImage(640, 960, QImage.Format_RGB32)
@@ -203,7 +211,7 @@ class GuiPostprocessTests(unittest.TestCase):
         viewer = self.window.mesh_preview_label
         with mock.patch.object(self.window, "_animations_enabled", return_value=True):
             self.window._set_label_image(viewer, image_path, "Mesh preview will appear here.", animate=True)
-            self.app.processEvents()
+            self._flush_events()
 
         self.assertFalse(isinstance(viewer.graphicsEffect(), QGraphicsOpacityEffect))
         self.assertIsNotNone(viewer.image_label.pixmap())
@@ -223,6 +231,58 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertGreater(scrollbar.maximum(), 0)
         self.assertTrue(self.window.open_paraview_button.isVisible())
         self.assertTrue(self.window.export_results_button.isVisible())
+
+    def test_live_curve_card_can_collapse_and_restore(self):
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.app.processEvents()
+
+        self.assertFalse(self.window._compute_curve_collapsed)
+        self.assertFalse(self.window.curve_surface.isHidden())
+        self.assertEqual(self.window.curve_toggle_button.text(), "▾")
+
+    def test_compute_live_preview_panel_shows_damage_and_displacement(self):
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.window.tabs.setCurrentIndex(self.window.compute_tab_index)
+        self.app.processEvents()
+
+        damage_path = self.temp_path / "snap_SENT_0001.png"
+        displacement_path = self.temp_path / "u_mag_SENT_0001.png"
+        damage_image = QImage(320, 240, QImage.Format_RGB32)
+        damage_image.fill(QColor("#dce8f5"))
+        displacement_image = QImage(320, 240, QImage.Format_RGB32)
+        displacement_image.fill(QColor("#ffffff"))
+        self.assertTrue(damage_image.save(str(damage_path)))
+        self.assertTrue(displacement_image.save(str(displacement_path)))
+
+        self.window.current_case = "sent_tension"
+        self.window.active_case_id = "sent_tension"
+        self.window.active_run_mode = "compute"
+        self.window.update_snapshot(str(damage_path))
+        self.window.update_displacement_path(str(displacement_path))
+        self.app.processEvents()
+
+        self.assertIsNotNone(self.window.damage_label.image_label.pixmap())
+        self.assertFalse(self.window.damage_label.image_label.pixmap().isNull())
+        self.assertIsNotNone(self.window.displacement_label.image_label.pixmap())
+        self.assertFalse(self.window.displacement_label.image_label.pixmap().isNull())
+        self.assertFalse(self.window.compute_damage_card.isHidden())
+        self.assertFalse(self.window.compute_displacement_card.isHidden())
+
+        self.window.toggle_compute_curve_card()
+        self.app.processEvents()
+        self.assertTrue(self.window._compute_curve_collapsed)
+        self.assertTrue(self.window.curve_surface.isHidden())
+        self.assertEqual(self.window.curve_toggle_button.text(), "▴")
+
+        self.window.toggle_compute_curve_card()
+        self.app.processEvents()
+        self.assertFalse(self.window._compute_curve_collapsed)
+        self.assertFalse(self.window.curve_surface.isHidden())
+        self.assertEqual(self.window.curve_toggle_button.text(), "▾")
 
 
 if __name__ == "__main__":

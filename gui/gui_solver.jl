@@ -28,6 +28,7 @@ const CASE_SENS = "SENS"
 
 const GUI_DIR = @__DIR__
 const DEFAULT_OUTPUT_DIR = joinpath(GUI_DIR, "gui_results")
+const LIVE_PREVIEW_RENDERER = joinpath(GUI_DIR, "live_preview_renderer.py")
 OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 const STOP_FLAG_PATH = joinpath(GUI_DIR, "gui_stop.flag")
 const PNG_DPI = 140
@@ -92,6 +93,7 @@ struct RunConfig
     run_dir::String
     output_dir::String
     mesh_file::String
+    python_executable::String
     params::CaseParams
 end
 
@@ -109,6 +111,7 @@ curve_csv_name(name::String) = "F_u_curve_$(name).csv"
 curve_png_name(name::String) = "F_u_curve_$(name).png"
 damage_final_name(name::String) = "d_final_$(name).png"
 displacement_final_name(name::String) = "u_mag_final_$(name).png"
+displacement_snapshot_name(name::String, step::Int) = @sprintf("u_mag_%s_%04d.png", name, step)
 snapshot_name(name::String, step::Int) = @sprintf("snap_%s_%04d.png", name, step)
 vtk_prefix(name::String) = "result_$(name)_"
 vtk_filename(name::String, suffix::String) = vtk_prefix(name) * suffix
@@ -190,7 +193,8 @@ function parse_params(path::String)
     run_dir = get(data, "run_dir", "")
     output_dir = get(data, "output_dir", DEFAULT_OUTPUT_DIR)
     mesh_file = get(data, "mesh_file", "")
-    return RunConfig(selected_case, run_mode, run_id, run_dir, output_dir, mesh_file, params)
+    python_executable = get(data, "python_executable", "python3")
+    return RunConfig(selected_case, run_mode, run_id, run_dir, output_dir, mesh_file, python_executable, params)
 end
 
 function validate_common_params(params::CaseParams)
@@ -240,6 +244,7 @@ function clear_case_outputs(selected_case::String; mesh::Bool=false, compute::Bo
             continue
         end
         if startswith(name, "snap_$(selected_case)_") ||
+           startswith(name, "u_mag_$(selected_case)_") ||
            startswith(name, vtk_prefix(selected_case)) ||
            name == curve_csv_name(selected_case) ||
            name == curve_png_name(selected_case) ||
@@ -529,6 +534,24 @@ function write_paraview_vtk(trian, filebase; cellfields)
     writevtk(trian, filebase; nsubcells=1, cellfields=cellfields)
 end
 
+function render_live_preview(vtu_path::String, field_key::String, output_path::String, python_executable::String)
+    isfile(LIVE_PREVIEW_RENDERER) || error("Preview renderer not found: " * LIVE_PREVIEW_RENDERER)
+    run(`$(python_executable) $(LIVE_PREVIEW_RENDERER) --input $(vtu_path) --field $(field_key) --output $(output_path)`)
+end
+
+function write_live_preview(Ω, dh, uh, H_fe, output_path::String, field_key::String, python_executable::String)
+    temp_base = endswith(output_path, ".png") ? replace(output_path, r"\.png$" => "_preview_tmp") : output_path * "_preview_tmp"
+    temp_vtu = temp_base * ".vtu"
+    try
+        write_paraview_vtk(Ω, temp_base, cellfields=["d" => dh, "uh" => uh, "H" => H_fe])
+        render_live_preview(temp_vtu, field_key, output_path, python_executable)
+    finally
+        if isfile(temp_vtu)
+            rm(temp_vtu; force=true)
+        end
+    end
+end
+
 function run_mesh_stage(params::CaseParams)
     selected_case = case_name(params)
     validate_params(params)
@@ -551,7 +574,7 @@ function run_mesh_stage(params::CaseParams)
     emit_line("DONE")
 end
 
-function run_compute_stage(params::SentParams, mesh_file::String)
+function run_compute_stage(params::SentParams, mesh_file::String, python_executable::String)
     validate_params(params)
     prepare_compute_output_dir(CASE_SENT)
     csv_path = init_live_csv(CASE_SENT)
@@ -728,11 +751,11 @@ function run_compute_stage(params::SentParams, mesh_file::String)
 
         if ENABLE_PNG && (step == 1 || step % params.snapshot_every == 0 || d_max > 0.95 || u_current >= params.u_end)
             png_path = joinpath(OUTPUT_DIR, snapshot_name(CASE_SENT, step))
-            plot_scalar_field(params, dh;
-                              out_file=png_path,
-                              vmin=0.0,
-                              vmax=1.0)
+            write_live_preview(Ω, dh, uh, H_fe, png_path, "damage", python_executable)
             emit_line("SNAPSHOT " * abspath(png_path))
+            displacement_png_path = joinpath(OUTPUT_DIR, displacement_snapshot_name(CASE_SENT, step))
+            write_live_preview(Ω, dh, uh, H_fe, displacement_png_path, "displacement", python_executable)
+            emit_line("DISPLACEMENT " * abspath(displacement_png_path))
             write_curve_plot(u_history, F_kN_history, CASE_SENT; color=:royalblue)
         end
 
@@ -749,14 +772,11 @@ function run_compute_stage(params::SentParams, mesh_file::String)
     end
 
     final_png = joinpath(OUTPUT_DIR, damage_final_name(CASE_SENT))
-    plot_scalar_field(params, dh;
-                      out_file=final_png,
-                      vmin=0.0,
-                      vmax=1.0)
+    write_live_preview(Ω, dh, uh, H_fe, final_png, "damage", python_executable)
     emit_line("SNAPSHOT " * abspath(final_png))
 
     displacement_png = joinpath(OUTPUT_DIR, displacement_final_name(CASE_SENT))
-    plot_displacement_magnitude(params, uh, displacement_png)
+    write_live_preview(Ω, dh, uh, H_fe, displacement_png, "displacement", python_executable)
     emit_line("DISPLACEMENT " * abspath(displacement_png))
 
     write_curve_plot(u_history, F_kN_history, CASE_SENT; color=:royalblue)
@@ -764,7 +784,7 @@ function run_compute_stage(params::SentParams, mesh_file::String)
     emit_line("DONE")
 end
 
-function run_compute_stage(params::SensParams, mesh_file::String)
+function run_compute_stage(params::SensParams, mesh_file::String, python_executable::String)
     validate_params(params)
     prepare_compute_output_dir(CASE_SENS)
     csv_path = init_live_csv(CASE_SENS)
@@ -941,11 +961,11 @@ function run_compute_stage(params::SensParams, mesh_file::String)
 
         if ENABLE_PNG && (step == 1 || step % params.snapshot_every == 0 || d_max > 0.95 || u_current >= params.u_end)
             png_path = joinpath(OUTPUT_DIR, snapshot_name(CASE_SENS, step))
-            plot_scalar_field(params, dh;
-                              out_file=png_path,
-                              vmin=0.0,
-                              vmax=1.0)
+            write_live_preview(Ω, dh, uh, H_fe, png_path, "damage", python_executable)
             emit_line("SNAPSHOT " * abspath(png_path))
+            displacement_png_path = joinpath(OUTPUT_DIR, displacement_snapshot_name(CASE_SENS, step))
+            write_live_preview(Ω, dh, uh, H_fe, displacement_png_path, "displacement", python_executable)
+            emit_line("DISPLACEMENT " * abspath(displacement_png_path))
             write_curve_plot(u_history, F_kN_history, CASE_SENS; color=:firebrick)
         end
 
@@ -962,14 +982,11 @@ function run_compute_stage(params::SensParams, mesh_file::String)
     end
 
     final_png = joinpath(OUTPUT_DIR, damage_final_name(CASE_SENS))
-    plot_scalar_field(params, dh;
-                      out_file=final_png,
-                      vmin=0.0,
-                      vmax=1.0)
+    write_live_preview(Ω, dh, uh, H_fe, final_png, "damage", python_executable)
     emit_line("SNAPSHOT " * abspath(final_png))
 
     displacement_png = joinpath(OUTPUT_DIR, displacement_final_name(CASE_SENS))
-    plot_displacement_magnitude(params, uh, displacement_png)
+    write_live_preview(Ω, dh, uh, H_fe, displacement_png, "displacement", python_executable)
     emit_line("DISPLACEMENT " * abspath(displacement_png))
 
     write_curve_plot(u_history, F_kN_history, CASE_SENS; color=:firebrick)
@@ -986,7 +1003,7 @@ function main()
     if config.run_mode == "mesh"
         run_mesh_stage(config.params)
     elseif config.run_mode == "compute"
-        run_compute_stage(config.params, config.mesh_file)
+        run_compute_stage(config.params, config.mesh_file, config.python_executable)
     else
         error("Unsupported run_mode: " * config.run_mode)
     end

@@ -120,6 +120,9 @@ APP_FONT_FAMILY = PREFERRED_SERIF_FONT_FAMILY
 APP_FONT_SIZE = 17
 TITLE_FONT_SIZE = 40
 PLOT_FONT_SIZE = 16
+CURVE_AXIS_FONT_SIZE = 13
+CURVE_TICK_FONT_SIZE = 11
+CURVE_LEGEND_FONT_SIZE = 11
 ANIMATION_FAST_MS = 150
 ANIMATION_MEDIUM_MS = 220
 ANIMATION_SLOW_MS = 320
@@ -135,6 +138,7 @@ TOP_LEVEL_RESULT_PATTERNS = (
     "F_u_curve*.png",
     "d_final*.png",
     "u_mag_final*.png",
+    "u_mag_*.png",
     "result*.vtu",
     "snap*.png",
 )
@@ -355,8 +359,8 @@ class CurveCanvas(FigureCanvas):
         super().__init__(self.figure)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumHeight(250)
-        self.figure.patch.set_facecolor("#f8fbfe")
-        self.axes.set_facecolor("#f7fbfe")
+        self.figure.patch.set_facecolor("#ffffff")
+        self.axes.set_facecolor("#ffffff")
         self.setStyleSheet("background: transparent;")
         self.update_curve([], [])
 
@@ -369,8 +373,8 @@ class CurveCanvas(FigureCanvas):
 
     def update_curves(self, series):
         self.axes.clear()
-        self.figure.patch.set_facecolor("#f8fbfe")
-        self.axes.set_facecolor("#f7fbfe")
+        self.figure.patch.set_facecolor("#ffffff")
+        self.axes.set_facecolor("#ffffff")
         if not series:
             series = [{"x": [], "y": [], "label": ""}]
         for index, item in enumerate(series):
@@ -386,25 +390,25 @@ class CurveCanvas(FigureCanvas):
             elif len(series) == 1 and index == 0:
                 line_kwargs["color"] = "#1f77b4"
             self.axes.plot(x_values, y_values, **line_kwargs)
-        self.axes.set_xlabel(self._x_label)
-        self.axes.set_ylabel(self._y_label)
-        self.axes.tick_params(direction="in", colors="#203247")
-        self.axes.grid(True, color="#bfd0df", linewidth=1.0)
+        self.axes.set_xlabel(self._x_label, fontsize=CURVE_AXIS_FONT_SIZE)
+        self.axes.set_ylabel(self._y_label, fontsize=CURVE_AXIS_FONT_SIZE)
+        self.axes.tick_params(direction="in", colors="#203247", labelsize=CURVE_TICK_FONT_SIZE)
+        self.axes.grid(True, color="#b9cbdd", linewidth=1.0)
         for spine in self.axes.spines.values():
             spine.set_visible(True)
             spine.set_color("#2f4258")
             spine.set_linewidth(1.1)
         if len(series) > 1 and any(item.get("label") for item in series):
-            legend = self.axes.legend()
+            legend = self.axes.legend(fontsize=CURVE_LEGEND_FONT_SIZE)
             if legend is not None:
-                legend.get_frame().set_facecolor("#f7fbfe")
+                legend.get_frame().set_facecolor("#ffffff")
                 legend.get_frame().set_edgecolor("#c2cfdb")
         self.figure.subplots_adjust(left=0.16, right=0.97, bottom=0.18, top=0.95)
         self.draw_idle()
 
 
 class ImagePreviewWidget(QWidget):
-    def __init__(self, placeholder_text: str):
+    def __init__(self, placeholder_text: str, *, surface_variant: str = "framed"):
         super().__init__()
         self._placeholder_text = placeholder_text
         self._base_pixmap = QPixmap()
@@ -422,6 +426,7 @@ class ImagePreviewWidget(QWidget):
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setObjectName("PreviewImageArea")
+        self.scroll_area.setProperty("surface_variant", surface_variant)
         self.scroll_area.setWidget(self.image_label)
         self.scroll_area.setWidgetResizable(False)
         self.scroll_area.setAlignment(Qt.AlignCenter)
@@ -791,6 +796,7 @@ class MainWindow(QMainWindow):
         self._toast_hide_timer = QTimer(self)
         self._toast_hide_timer.setSingleShot(True)
         self._toast_hide_timer.timeout.connect(self._hide_toast)
+        self._compute_curve_collapsed = False
 
         self.paraview_executable = shutil.which("paraview")
         self.run_profile_overrides = {}
@@ -1210,28 +1216,63 @@ class MainWindow(QMainWindow):
         right_layout.setSpacing(16)
 
         right_layout.addWidget(self._create_section_label("Live Preview"))
+        preview_row = QWidget()
+        preview_row_layout = QBoxLayout(QBoxLayout.LeftToRight, preview_row)
+        preview_row_layout.setContentsMargins(0, 0, 0, 0)
+        preview_row_layout.setSpacing(14)
+        self.compute_top_preview_layout = preview_row_layout
+
         damage_card = QWidget()
         damage_card.setObjectName("NestedPreviewCard")
         damage_layout = QVBoxLayout(damage_card)
         damage_layout.setContentsMargins(16, 14, 16, 16)
         damage_layout.setSpacing(10)
         damage_layout.addWidget(self._create_section_label("Damage Contour"))
-        self.damage_label = self._create_image_viewer("Damage snapshot will appear here.")
+        self.damage_label = self._create_image_viewer("Damage snapshot will appear here.", surface_variant="borderless")
         self.damage_label.setMinimumHeight(320)
-        damage_layout.addWidget(self.damage_label, stretch=1)
+        self.damage_surface = self._create_preview_surface(self.damage_label)
+        damage_layout.addWidget(self.damage_surface, stretch=1)
+        preview_row_layout.addWidget(damage_card, stretch=1)
+
+        displacement_card = QWidget()
+        displacement_card.setObjectName("NestedPreviewCard")
+        displacement_layout = QVBoxLayout(displacement_card)
+        displacement_layout.setContentsMargins(16, 14, 16, 16)
+        displacement_layout.setSpacing(10)
+        displacement_layout.addWidget(self._create_section_label("Displacement Contour"))
+        self.displacement_label = self._create_image_viewer("Displacement snapshot will appear here.", surface_variant="borderless")
+        self.displacement_label.setMinimumHeight(320)
+        self.displacement_surface = self._create_preview_surface(self.displacement_label)
+        displacement_layout.addWidget(self.displacement_surface, stretch=1)
+        preview_row_layout.addWidget(displacement_card, stretch=1)
 
         curve_card = QWidget()
         curve_card.setObjectName("NestedPreviewCard")
         curve_layout = QVBoxLayout(curve_card)
         curve_layout.setContentsMargins(16, 14, 16, 16)
         curve_layout.setSpacing(10)
-        curve_layout.addWidget(self._create_section_label("Live Curve"))
+        curve_header = QWidget()
+        curve_header_layout = QHBoxLayout(curve_header)
+        curve_header_layout.setContentsMargins(0, 0, 0, 0)
+        curve_header_layout.setSpacing(10)
+        curve_header_layout.addWidget(self._create_section_label("Live Curve"))
+        curve_header_layout.addStretch(1)
+        self.curve_toggle_button = QPushButton("▾")
+        self.curve_toggle_button.setToolTip("Collapse live curve")
+        self.curve_toggle_button.setProperty("icon_button", True)
+        self.curve_toggle_button.setProperty("variant", "secondary")
+        self.curve_toggle_button.clicked.connect(self.toggle_compute_curve_card)
+        curve_header_layout.addWidget(self.curve_toggle_button, stretch=0)
+        curve_layout.addWidget(curve_header)
         self.curve_canvas = CurveCanvas()
         self.curve_canvas.setObjectName("CurveCanvas")
-        curve_layout.addWidget(self.curve_canvas, stretch=1)
-        right_layout.addWidget(damage_card, stretch=3)
+        self.curve_surface = self._create_preview_surface(self.curve_canvas)
+        curve_layout.addWidget(self.curve_surface, stretch=1)
+        right_layout.addWidget(preview_row, stretch=3)
         right_layout.addWidget(curve_card, stretch=0)
+        self.compute_preview_row = preview_row
         self.compute_damage_card = damage_card
+        self.compute_displacement_card = displacement_card
         self.compute_curve_card = curve_card
         self.compute_preview_card = right_panel
 
@@ -1320,8 +1361,8 @@ class MainWindow(QMainWindow):
         label.hide()
         return label
 
-    def _create_image_viewer(self, text: str):
-        return ImagePreviewWidget(text)
+    def _create_image_viewer(self, text: str, *, surface_variant: str = "framed"):
+        return ImagePreviewWidget(text, surface_variant=surface_variant)
 
     def _create_image_label(self, text: str):
         label = QLabel(text)
@@ -1361,6 +1402,15 @@ class MainWindow(QMainWindow):
         label.setObjectName("SectionLabel")
         return label
 
+    def _create_preview_surface(self, widget: QWidget):
+        frame = QWidget()
+        frame.setObjectName("PreviewInnerFrame")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(0)
+        layout.addWidget(widget, stretch=1)
+        return frame
+
     def _apply_theme(self):
         self.setStyleSheet(
             f"""
@@ -1392,6 +1442,16 @@ class MainWindow(QMainWindow):
                 );
                 border: 1px solid #cad4df;
                 border-radius: 16px;
+            }}
+            QWidget#PreviewInnerFrame {{
+                background: #ffffff;
+                border: 1px solid #c5cfda;
+                border-radius: 14px;
+            }}
+            QScrollArea#PreviewImageArea[surface_variant="borderless"] {{
+                background: transparent;
+                border: none;
+                border-radius: 0px;
             }}
             QLabel#WindowTitleLabel {{
                 color: #0e1b2a;
@@ -1583,6 +1643,16 @@ class MainWindow(QMainWindow):
             }}
             QPushButton[floating="true"] {{
                 border-color: #7e9fbe;
+            }}
+            QPushButton[icon_button="true"] {{
+                min-width: 34px;
+                max-width: 34px;
+                min-height: 30px;
+                max-height: 30px;
+                padding: 0px;
+                font-size: 18px;
+                font-weight: 700;
+                border-radius: 15px;
             }}
             QPushButton[variant="primary"] {{
                 background: qlineargradient(
@@ -2045,6 +2115,7 @@ class MainWindow(QMainWindow):
         self._set_layout_direction(self.header_controls_layout, not compact_actions)
         self._set_layout_direction(self.mesh_main_layout, not stacked_main)
         self._set_layout_direction(self.compute_main_layout, not stacked_main)
+        self._set_layout_direction(self.compute_top_preview_layout, not stacked_main)
         self._set_layout_direction(self.scan_button_layout, not compact_actions)
         self._set_layout_direction(self.compute_action_layout, not compact_actions)
         self._set_layout_direction(self.postprocess_controls_layout, not compact_actions)
@@ -2063,8 +2134,14 @@ class MainWindow(QMainWindow):
         badge_min_width = 0 if stacked_header else (420 if width < 1480 else 470)
         self.mesh_preview_label.setMinimumHeight(preview_min_height)
         self.damage_label.setMinimumHeight(compute_preview_min_height)
+        self.displacement_label.setMinimumHeight(compute_preview_min_height)
         self.curve_canvas.setMinimumHeight(curve_min_height)
-        self.compute_curve_card.setMaximumHeight(280 if stacked_main else 320)
+        if self._compute_curve_collapsed:
+            self.compute_curve_card.setMaximumHeight(82)
+            self.curve_surface.setVisible(False)
+        else:
+            self.compute_curve_card.setMaximumHeight(300 if stacked_main else 340)
+            self.curve_surface.setVisible(True)
         self.postprocess_stack.setMinimumHeight(postprocess_surface_min_height)
         self.postprocess_label.setMinimumHeight(postprocess_surface_min_height)
         self.postprocess_curve_canvas.setMinimumHeight(max(curve_min_height, 200 if compact_actions else curve_min_height))
@@ -2081,6 +2158,12 @@ class MainWindow(QMainWindow):
         self.stop_button.setMinimumWidth(0 if compact_actions else 110)
         self.open_paraview_button.setMinimumWidth(0 if compact_actions else 150)
         self.export_results_button.setMinimumWidth(0 if compact_actions else 120)
+
+    def toggle_compute_curve_card(self):
+        self._compute_curve_collapsed = not self._compute_curve_collapsed
+        self.curve_toggle_button.setText("▴" if self._compute_curve_collapsed else "▾")
+        self.curve_toggle_button.setToolTip("Expand live curve" if self._compute_curve_collapsed else "Collapse live curve")
+        self._apply_responsive_layout()
 
     def _sync_category_combo(self):
         self._syncing_selection = True
@@ -2303,15 +2386,18 @@ class MainWindow(QMainWindow):
         mesh_png = native_output_dir / mesh_png_name(case_name)
         curve_candidates = [native_output_dir / curve_csv_name(case_name)]
         damage_candidates = [native_output_dir / damage_final_name(case_name)]
+        displacement_candidates = [native_output_dir / displacement_final_name(case_name)]
         legacy_mode = run_dir_path is None
         if legacy_mode and case_name == "SENT":
             curve_candidates.append(native_output_dir / "F_u_curve.csv")
             damage_candidates.append(native_output_dir / "d_final.png")
+            displacement_candidates.append(native_output_dir / "u_mag_final.png")
         curve_csv = first_existing(*curve_candidates)
         damage_final = first_existing(*damage_candidates)
-        displacement = first_existing(native_output_dir / displacement_final_name(case_name))
+        displacement_final = first_existing(*displacement_candidates)
 
         snapshot_paths = [path for path in native_output_dir.glob(f"snap_{case_name}_*.png") if path.is_file()]
+        displacement_paths = [path for path in native_output_dir.glob(f"u_mag_{case_name}_*.png") if path.is_file()]
         vtk_paths = [path for path in native_output_dir.glob(f"{result_prefix(case_name)}*.vtu") if path.is_file()]
         if legacy_mode and case_name == "SENT":
             snapshot_paths.extend(
@@ -2319,9 +2405,12 @@ class MainWindow(QMainWindow):
                 for path in native_output_dir.glob("snap_*.png")
                 if path.is_file() and len(path.name) > 5 and path.name[5].isdigit()
             )
+            displacement_paths.extend(path for path in native_output_dir.glob("u_mag_*.png") if path.is_file() and "final" not in path.name)
             legacy_final_vtk = native_output_dir / "result_final.vtu"
             if legacy_final_vtk.exists():
                 vtk_paths.append(legacy_final_vtk)
+        if displacement_final is not None:
+            displacement_paths.append(displacement_final)
 
         return self._make_manifest(
             case,
@@ -2335,7 +2424,7 @@ class MainWindow(QMainWindow):
             vtk_paths=vtk_paths,
             curve_csv_paths=[curve_csv] if curve_csv else [],
             damage_paths=[damage_final] if damage_final else [],
-            displacement_paths=[displacement] if displacement else [],
+            displacement_paths=displacement_paths,
         )
 
     def _build_batch_manifest(
@@ -2882,7 +2971,7 @@ class MainWindow(QMainWindow):
         self.log_box.setPlainText("\n".join(state["log_lines"]))
         self._scroll_log_to_end()
         self._set_label_image(self.mesh_preview_label, state["mesh_preview_path"], self._mesh_placeholder())
-        self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder())
+        self._refresh_compute_live_previews()
         self.vtk_label.setText(f"Latest VTK: {state['latest_vtk_path'] or 'None'}")
         self._sync_postprocess_view_combo(case.case_id)
         self.refresh_postprocess_view(prefer_latest=False, animate=False)
@@ -3005,6 +3094,16 @@ class MainWindow(QMainWindow):
             return
         self._animate_content_swap(label, apply_content)
 
+    def _refresh_compute_live_previews(self):
+        state = self._current_state()
+        self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder(), animate=False)
+        self._set_label_image(
+            self.displacement_label,
+            state["latest_displacement_path"],
+            "Run compute to view the displacement contour.",
+            animate=False,
+        )
+
     def _render_postprocess_view(self, view_name: str, selected_path: str | None):
         if view_name == "Curve":
             self.postprocess_stack.setCurrentWidget(self.postprocess_curve_canvas)
@@ -3083,7 +3182,11 @@ class MainWindow(QMainWindow):
                 paths.append(final_damage)
             return [path for path in paths if path.exists()]
         if view_name == "Displacement":
-            return [state["latest_displacement_path"]] if state["latest_displacement_path"] else []
+            paths = [Path(path) for path in manifest.displacement_paths]
+            latest_displacement = state["latest_displacement_path"]
+            if latest_displacement and latest_displacement not in paths:
+                paths.append(latest_displacement)
+            return [path for path in paths if path.exists()]
         if view_name == "Curve":
             return [Path(path) for path in manifest.curve_csv_paths if Path(path).exists()]
         if view_name == "Summary Table":
@@ -3277,7 +3380,7 @@ class MainWindow(QMainWindow):
             state["latest_damage_path"] = path
             state["history_selection"]["Damage"] = str(path)
             if self.active_case_id == self.current_case:
-                self._set_label_image(self.damage_label, path, self._damage_placeholder())
+                self._refresh_compute_live_previews()
         if self.active_case_id == self.current_case:
             self.refresh_postprocess_view(prefer_latest=True, animate=self.tabs.currentIndex() == self.post_tab_index)
 
@@ -3296,6 +3399,7 @@ class MainWindow(QMainWindow):
         state["latest_displacement_path"] = path
         state["history_selection"]["Displacement"] = str(path)
         if self.active_case_id == self.current_case:
+            self._refresh_compute_live_previews()
             self.refresh_postprocess_view(prefer_latest=True, animate=self.tabs.currentIndex() == self.post_tab_index)
 
     def collect_params(self):
@@ -3342,6 +3446,7 @@ class MainWindow(QMainWindow):
         payload["run_id"] = self.active_run_id
         payload["run_dir"] = str(self.active_run_dir.resolve())
         payload["output_dir"] = str(self.active_native_output_dir.resolve())
+        payload["python_executable"] = sys.executable
         payload["case_name"] = case.protocol_case_name
         payload["run_mode"] = run_mode
         payload["run_profile"] = normalize_run_profile(run_profile, fallback=case.default_run_profile)
@@ -3457,6 +3562,7 @@ class MainWindow(QMainWindow):
         self._apply_case_state_to_ui()
         self._current_state()["mesh_status"] = f"Generating {case.display_name} mesh..."
         self.mesh_status_label.setText(self._current_state()["mesh_status"])
+        self.log_box.clear()
         self._clear_label_image(self.mesh_preview_label, "Waiting for mesh preview...")
         self._start_worker("mesh", effective_params, case, run_profile, scan_cases)
 
@@ -3483,6 +3589,7 @@ class MainWindow(QMainWindow):
         state = self._current_state()
         state["compute_status"] = f"Starting {case.display_name} compute stage..."
         self.compute_status_label.setText(state["compute_status"])
+        self.log_box.clear()
         self._start_worker("compute", effective_params, case, run_profile, scan_cases)
 
     def stop_run(self):
@@ -3643,10 +3750,6 @@ class MainWindow(QMainWindow):
         ):
             if not button.property("floating"):
                 self._button_rest_geometries[button] = QRect(button.geometry())
-        state = self._current_state()
-        self._set_label_image(self.mesh_preview_label, state["mesh_preview_path"], self._mesh_placeholder(), animate=False)
-        self._set_label_image(self.damage_label, state["latest_damage_path"], self._damage_placeholder(), animate=False)
-        self.refresh_postprocess_view(prefer_latest=False, animate=False)
 
     def closeEvent(self, event):
         if self.worker is not None and self.worker.isRunning():

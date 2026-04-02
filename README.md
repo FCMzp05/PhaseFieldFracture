@@ -63,6 +63,13 @@
 - 已为 compute 页 `Damage Contour` 接入与 mesh 预览一致的 `Ctrl+滚轮` 缩放/滚动交互，并将 `Live Curve` 底色再调浅以贴合卡片背景
 - 已将 `new/` 目录中的后处理风格接入 GUI `Visual Export`：不同 benchmark 按各自字段使用不同 colormap / colorbar / panel 布局，并把 `gridap/gmsh` 重复节点合并与边界环恢复逻辑复刻到导出几何图
 - 已为此前未接通的 `TPB / Offset double-notch / Double-notched monotonic / SENT elasto-plastic fatigue / CT elasto-plastic fatigue` 补齐 GUI `Visual Export` 入口与导出链路
+- 已将 compute 页实时 `Damage / Displacement` 云图改为基于 VTU 的白底重绘预览，收敛到 `new/` 风格，并复用 `gridap/gmsh` 节点合并与边界恢复逻辑
+- 已将 GUI / Visual Export 云图统一到同一套去重节点三角剖分与点场对齐逻辑，进一步收敛 `gridap/gmsh` 节点一致性
+- 已将 compute 页 `Live Curve` 改为白底内板，并补最小化/恢复按钮
+- 已将 compute 页实时预览重排为统一 panel：上排并排显示 `Damage / Displacement`，下排横向显示 `Live Curve`，并让 protocol case 在运行过程中同步刷新实时位移图
+- 已在 mesh / compute 启动时显式清空实时日志框，减少旧日志残留到新一轮运行前的显示问题
+- 已将 `Live Curve` 的坐标轴/刻度/图例字号局部下调，减轻大字号下的拥挤感
+- 已将 compute 页缩放时的重复预览重载链移除，缩放改为依赖预览器自身重绘，并把实时图区折叠按钮改为小箭头、收敛多余内框
 
 ### 部分完成
 
@@ -159,3 +166,4 @@ peng_pf_ui/
 - 继续观察 case 胶囊在不同 case 名称长度下的单行稳定性，以及 Matplotlib 背景在导出图时的视觉一致性
 - 继续观察 compute 页 `Damage Contour` 在首张快照到达前后的缩放、滚动与占高表现
 - 继续观察新增 `Visual Export` 在真实长程结果上的出图耗时、字段兼容性和色标上限稳定性
+- 继续观察 compute 页实时 VTU 重绘预览在长程算例下的耗时与稳定性

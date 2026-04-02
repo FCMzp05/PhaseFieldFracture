@@ -109,28 +109,93 @@ def _triangle_cells(mesh: meshio.Mesh) -> np.ndarray:
     return cells
 
 
-def _field_to_points(mesh: meshio.Mesh, name: str) -> np.ndarray:
+def _merged_points_and_cells(
+    coords: np.ndarray,
+    cells: np.ndarray,
+    tol: float = 1.0e-10,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    quantized = np.round(coords / tol).astype(np.int64)
+    representative_by_key: dict[tuple[int, int], int] = {}
+    remap = np.empty(len(coords), dtype=int)
+    for index, key in enumerate(quantized):
+        tuple_key = (int(key[0]), int(key[1]))
+        representative = representative_by_key.setdefault(tuple_key, index)
+        remap[index] = representative
+
+    unique_ids, inverse = np.unique(remap, return_inverse=True)
+    merged_coords = coords[unique_ids]
+    merged_cells = inverse[cells]
+    if merged_cells.size:
+        merged_cells = np.asarray(
+            [tri for tri in merged_cells if len({int(tri[0]), int(tri[1]), int(tri[2])}) == 3],
+            dtype=int,
+        )
+    else:
+        merged_cells = np.empty((0, 3), dtype=int)
+    return merged_coords, merged_cells, inverse
+
+
+def _merge_point_values(values: np.ndarray, inverse: np.ndarray, merged_size: int) -> np.ndarray:
+    values_2d = values if values.ndim == 2 else values[:, None]
+    merged_values = np.zeros((merged_size, values_2d.shape[1]), dtype=float)
+    counts = np.zeros(merged_size, dtype=float)
+    np.add.at(merged_values, inverse, values_2d)
+    np.add.at(counts, inverse, 1.0)
+    merged_values /= np.maximum(counts[:, None], 1.0)
+    return merged_values
+
+
+def _align_point_field_by_coordinates(
+    source_points: np.ndarray,
+    source_values: np.ndarray,
+    target_points: np.ndarray,
+    tol: float = 1.0e-10,
+) -> np.ndarray:
+    source_values_2d = source_values if source_values.ndim == 2 else source_values[:, None]
+    source_index_by_key = {
+        tuple(np.round(point / tol).astype(np.int64)): index for index, point in enumerate(source_points)
+    }
+    aligned = np.zeros((len(target_points), source_values_2d.shape[1]), dtype=float)
+    for index, point in enumerate(target_points):
+        key = tuple(np.round(point / tol).astype(np.int64))
+        source_index = source_index_by_key.get(key)
+        if source_index is None:
+            raise KeyError(f"Target point {point.tolist()} is missing in source field alignment.")
+        aligned[index] = source_values_2d[source_index]
+    if source_values.ndim == 1:
+        return aligned[:, 0]
+    return aligned
+
+
+def _field_to_points(mesh: meshio.Mesh, name: str, *, merge_duplicates: bool = True) -> np.ndarray:
     if name in mesh.point_data:
         values = np.asarray(mesh.point_data[name], dtype=float)
         if values.ndim == 1:
-            return values[:, None]
-        return values
+            values = values[:, None]
+        raw_values = values
+    else:
+        block_index, cells = _triangle_block(mesh)
+        if name not in mesh.cell_data or block_index >= len(mesh.cell_data[name]):
+            raise KeyError(f"Field '{name}' not found in mesh.")
 
-    block_index, cells = _triangle_block(mesh)
-    if name not in mesh.cell_data or block_index >= len(mesh.cell_data[name]):
-        raise KeyError(f"Field '{name}' not found in mesh.")
+        values = np.asarray(mesh.cell_data[name][block_index], dtype=float)
+        if values.ndim == 1:
+            values = values[:, None]
 
-    values = np.asarray(mesh.cell_data[name][block_index], dtype=float)
-    if values.ndim == 1:
-        values = values[:, None]
+        raw_values = np.zeros((len(mesh.points), values.shape[1]), dtype=float)
+        weights = np.zeros(len(mesh.points), dtype=float)
+        for local_node in range(3):
+            np.add.at(raw_values, cells[:, local_node], values)
+            np.add.at(weights, cells[:, local_node], 1.0)
+        raw_values /= np.maximum(weights[:, None], 1.0)
 
-    point_values = np.zeros((len(mesh.points), values.shape[1]), dtype=float)
-    weights = np.zeros(len(mesh.points), dtype=float)
-    for local_node in range(3):
-        np.add.at(point_values, cells[:, local_node], values)
-        np.add.at(weights, cells[:, local_node], 1.0)
-    point_values /= np.maximum(weights[:, None], 1.0)
-    return point_values
+    if not merge_duplicates:
+        return raw_values
+
+    coords = np.asarray(mesh.points[:, :2], dtype=float)
+    cells = _triangle_cells(mesh)
+    merged_coords, _, inverse = _merged_points_and_cells(coords, cells)
+    return _merge_point_values(raw_values, inverse, len(merged_coords))
 
 
 def _scalar_field(mesh: meshio.Mesh, name: str) -> np.ndarray:
@@ -154,8 +219,9 @@ def _triangulation(
     ylim: tuple[float, float] | None = None,
     triangle_filter=None,
 ):
-    points = np.asarray(mesh.points[:, :2], dtype=float)
-    cells = _triangle_cells(mesh)
+    raw_points = np.asarray(mesh.points[:, :2], dtype=float)
+    raw_cells = _triangle_cells(mesh)
+    points, cells, _ = _merged_points_and_cells(raw_points, raw_cells)
     mask = np.ones(len(cells), dtype=bool)
     if xlim is not None or ylim is not None:
         cx = points[cells, 0].mean(axis=1)
@@ -183,18 +249,7 @@ def _polygon_area(points: np.ndarray) -> float:
 
 
 def _merged_boundary_loops(coords: np.ndarray, cells: np.ndarray, tol: float = 1.0e-10) -> list[np.ndarray]:
-    quantized = np.round(coords / tol).astype(np.int64)
-    representative_by_key: dict[tuple[int, int], int] = {}
-    remap = np.empty(len(coords), dtype=int)
-    for index, key in enumerate(quantized):
-        tuple_key = (int(key[0]), int(key[1]))
-        representative = representative_by_key.setdefault(tuple_key, index)
-        remap[index] = representative
-
-    unique_ids, inverse = np.unique(remap, return_inverse=True)
-    merged_coords = coords[unique_ids]
-    merged_cells = inverse[cells]
-    merged_cells = np.asarray([tri for tri in merged_cells if len({int(tri[0]), int(tri[1]), int(tri[2])}) == 3], dtype=int)
+    merged_coords, merged_cells, _ = _merged_points_and_cells(coords, cells, tol=tol)
     if len(merged_cells) == 0:
         return []
 
@@ -245,8 +300,7 @@ def _merged_boundary_loops(coords: np.ndarray, cells: np.ndarray, tol: float = 1
 
 def _draw_mesh_overview(ax, mesh_path: Path, *, mesh_linewidth: float = 0.25):
     mesh = meshio.read(mesh_path)
-    coords = np.asarray(mesh.points[:, :2], dtype=float)
-    triangles = _triangle_cells(mesh)
+    coords, triangles, _ = _triangulation(mesh)
 
     ax.add_collection(mc.PolyCollection(coords[triangles], facecolor=MESH_FACE_COLOR, edgecolor="none", zorder=1))
     ax.triplot(coords[:, 0], coords[:, 1], triangles, color=MESH_EDGE_COLOR, linewidth=mesh_linewidth, zorder=2)
@@ -1321,9 +1375,10 @@ def export_sent_fatigue_panels(
         crack_extension = (_extract_int_from_name(milestone_path, "a") or 0) / 1000.0
         regular_path = _nearest_regular_path(regular_paths, cycle)
         milestone_mesh = meshio.read(milestone_path)
-        _, _, tri = _triangulation(milestone_mesh, xlim=crop_x, ylim=crop_y)
+        milestone_points, _, tri = _triangulation(milestone_mesh, xlim=crop_x, ylim=crop_y)
         sigma_mesh = meshio.read(regular_path) if regular_path is not None else milestone_mesh
-        sigmaeq = _scalar_field(sigma_mesh, "sigmaeq")
+        sigma_points, _, _ = _triangulation(sigma_mesh)
+        sigmaeq = _align_point_field_by_coordinates(sigma_points, _scalar_field(sigma_mesh, "sigmaeq"), milestone_points)
         alpha_bar = _scalar_field(milestone_mesh, "alpha_bar")
         epspeq = _scalar_field(milestone_mesh, "epspeq")
         snaps.append(
