@@ -3370,7 +3370,7 @@ class MainWindow(QMainWindow):
         return "Run compute to view the Von Mises contour."
 
     def _visual_placeholder(self):
-        return "Exported visual panels will appear here."
+        return "Result summary panels will appear here."
 
     def _reset_widget_animations(self, widget: QWidget):
         content_animation = getattr(widget, "_content_animation", None)
@@ -3542,7 +3542,7 @@ class MainWindow(QMainWindow):
                 return f"Comparison Curve: {len(series)} Series [{labels}]"
             return "Comparison curves will appear here."
         if view_name == "Visual Export" and selected_path:
-            return f"Visual Export: {Path(selected_path).name}"
+            return f"Results Summary: {Path(selected_path).name}"
         if view_name == "Von Mises" and selected_path:
             return f"Von Mises: {Path(selected_path).name}"
         if selected_path:
@@ -3552,7 +3552,7 @@ class MainWindow(QMainWindow):
             "Damage": self._damage_placeholder(),
             "Displacement": self._displacement_placeholder(),
             "Von Mises": self._von_mises_placeholder(),
-            "Curve": "Curve data will appear here.",
+            "Curve": f"{postprocess_view_display_name(self._current_case_def(), 'Curve')} data will appear here.",
             "Summary Table": "Scan summary table will appear here.",
             "Comparison Curve": "Comparison curves will appear here.",
             "Visual Export": self._visual_placeholder(),

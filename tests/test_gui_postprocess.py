@@ -76,6 +76,12 @@ class GuiPostprocessTests(unittest.TestCase):
     def _view_names(self):
         return [self.window.postprocess_view_combo.itemText(index) for index in range(self.window.postprocess_view_combo.count())]
 
+    def _set_postprocess_view(self, view_key: str):
+        index = self.window.postprocess_view_combo.findData(view_key)
+        self.assertGreaterEqual(index, 0)
+        self.window.postprocess_view_combo.setCurrentIndex(index)
+        self.app.processEvents()
+
     def _write_postprocess_manifest(self, case_id: str, *, damage_frames: int = 0, displacement_frames: int = 0, vtk_frames: int = 0):
         native_dir = self.temp_path / f"{case_id}_native"
         native_dir.mkdir(parents=True, exist_ok=True)
@@ -144,7 +150,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self._write_postprocess_manifest("sent_tension", vtk_frames=2)
         self._open_window()
         self._select_case("sent_tension")
-        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Displacement", "Von Mises", "Curve", "Visual Export"])
+        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Displacement", "Von Mises", "Force-Displacement Curve", "Results Summary"])
 
     def test_julia_env_resolution_follows_active_conda_env(self):
         fake_prefix = self.temp_path / "envs" / "gui_envs"
@@ -191,19 +197,19 @@ class GuiPostprocessTests(unittest.TestCase):
     def test_fatigue_case_exposes_curve_view(self):
         self._open_window()
         self._select_case("sent_elasto_plastic_fatigue")
-        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Curve", "Visual Export"])
+        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Crack Growth Curve", "Results Summary"])
 
     def test_scan_case_hides_curve_and_displacement_views(self):
         self._open_window()
         self._select_case("offset_double_notch_fatigue")
-        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Summary Table", "Comparison Curve", "Visual Export"])
+        self.assertEqual(self._view_names(), ["Mesh", "Damage", "Summary Table", "Comparison Curve", "Results Summary"])
 
     def test_visual_export_view_is_enabled_for_newly_supported_cases(self):
         self._open_window()
         supported_cases = {
-            "tpb_fatigue": ["Mesh", "Damage", "Curve", "Visual Export"],
-            "double_notched_monotonic": ["Mesh", "Damage", "Summary Table", "Comparison Curve", "Visual Export"],
-            "ct_elasto_plastic_fatigue": ["Mesh", "Damage", "Curve", "Visual Export"],
+            "tpb_fatigue": ["Mesh", "Damage", "Crack Growth Curve", "Results Summary"],
+            "double_notched_monotonic": ["Mesh", "Damage", "Summary Table", "Comparison Curve", "Results Summary"],
+            "ct_elasto_plastic_fatigue": ["Mesh", "Damage", "Crack Growth Curve", "Results Summary"],
         }
         for case_id, expected_views in supported_cases.items():
             self._select_case(case_id)
@@ -240,8 +246,7 @@ class GuiPostprocessTests(unittest.TestCase):
 
         self._open_window()
         self._select_case(case_id)
-        self.window.postprocess_view_combo.setCurrentText("Curve")
-        self.app.processEvents()
+        self._set_postprocess_view("Curve")
 
         line = self.window.postprocess_curve_canvas.axes.lines[0]
         self.assertEqual(list(line.get_xdata()), [1.0, 2.0, 3.0])
@@ -346,8 +351,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self._flush_events()
 
         with mock.patch.object(self.window, "_animations_enabled", return_value=True):
-            self.window.postprocess_view_combo.setCurrentText("Curve")
-            self._flush_events()
+            self._set_postprocess_view("Curve")
 
         self.assertFalse(isinstance(self.window.postprocess_stack.graphicsEffect(), QGraphicsOpacityEffect))
         self.assertIs(self.window.postprocess_stack.currentWidget(), self.window.postprocess_curve_canvas)
@@ -359,7 +363,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self.window.show()
         self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
         self.window.tabs.setCurrentIndex(self.window.post_tab_index)
-        self.window.postprocess_view_combo.setCurrentText("Damage")
+        self._set_postprocess_view("Damage")
         self._flush_events()
 
         viewer = self.window.postprocess_label
@@ -393,7 +397,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self.window.show()
         self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
         self.window.tabs.setCurrentIndex(self.window.post_tab_index)
-        self.window.postprocess_view_combo.setCurrentText("Damage")
+        self._set_postprocess_view("Damage")
         self._flush_events()
 
         viewer = self.window.postprocess_label
@@ -421,7 +425,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self.window.show()
         self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
         self.window.tabs.setCurrentIndex(self.window.post_tab_index)
-        self.window.postprocess_view_combo.setCurrentText("Damage")
+        self._set_postprocess_view("Damage")
         self._flush_events()
 
         self.assertTrue(self.window.postprocess_timeline_stack.isVisible())
@@ -452,7 +456,7 @@ class GuiPostprocessTests(unittest.TestCase):
             vm_paths.append(image_path)
 
         with mock.patch.object(self.window, "_ensure_von_mises_history", return_value=vm_paths):
-            self.window.postprocess_view_combo.setCurrentText("Von Mises")
+            self._set_postprocess_view("Von Mises")
             self._flush_events()
 
             self.assertTrue(self.window.postprocess_timeline_stack.isVisible())
@@ -473,7 +477,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self.window.show()
         self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
         self.window.tabs.setCurrentIndex(self.window.post_tab_index)
-        self.window.postprocess_view_combo.setCurrentText("Mesh")
+        self._set_postprocess_view("Mesh")
         self._flush_events()
 
         self.assertFalse(self.window.postprocess_timeline_stack.isVisible())
@@ -513,17 +517,17 @@ class GuiPostprocessTests(unittest.TestCase):
         self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
         self.window.tabs.setCurrentIndex(self.window.post_tab_index)
 
-        self.window.postprocess_view_combo.setCurrentText("Damage")
+        self._set_postprocess_view("Damage")
         self._flush_events()
         damage_min_height = self.window.postprocess_label.minimumHeight()
         self.assertTrue(self.window.vtk_label.isVisible())
 
-        self.window.postprocess_view_combo.setCurrentText("Visual Export")
+        self._set_postprocess_view("Visual Export")
         self._flush_events()
 
         self.assertLess(self.window.postprocess_label.minimumHeight(), damage_min_height)
         self.assertFalse(self.window.vtk_label.isVisible())
-        self.assertEqual(self.window.postprocess_detail_label.text(), f"Visual Export: {export_path.name}")
+        self.assertEqual(self.window.postprocess_detail_label.text(), f"Results Summary: {export_path.name}")
         self.assertFalse(self.window.postprocess_timeline_stack.isVisible())
 
     def test_protocol_visual_export_adds_displacement_panel(self):
