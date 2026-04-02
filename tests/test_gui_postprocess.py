@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtCore import QPoint, QPointF, Qt
 from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtGui import QWheelEvent
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QGraphicsOpacityEffect
 from PyQt5.QtWidgets import QApplication
 
@@ -73,6 +74,46 @@ class GuiPostprocessTests(unittest.TestCase):
 
     def _view_names(self):
         return [self.window.postprocess_view_combo.itemText(index) for index in range(self.window.postprocess_view_combo.count())]
+
+    def _write_postprocess_manifest(self, case_id: str):
+        native_dir = self.temp_path / f"{case_id}_native"
+        native_dir.mkdir(parents=True, exist_ok=True)
+
+        mesh_msh = native_dir / "mesh_SENT.msh"
+        mesh_png = native_dir / "mesh_SENT.png"
+        damage_png = native_dir / "d_final_SENT.png"
+        displacement_png = native_dir / "u_mag_final_SENT.png"
+        curve_csv = native_dir / "F_u_curve_SENT.csv"
+        mesh_msh.write_text("mesh", encoding="utf-8")
+        curve_csv.write_text("u_mm,F_kN\n0.0,0.0\n0.1,2.0\n", encoding="utf-8")
+
+        for image_path, color in (
+            (mesh_png, QColor("#e2ebf4")),
+            (damage_png, QColor("#f6d9d6")),
+            (displacement_png, QColor("#d6e6f6")),
+        ):
+            image = QImage(640, 480, QImage.Format_RGB32)
+            image.fill(color)
+            self.assertTrue(image.save(str(image_path)))
+
+        manifest = RunManifest(
+            category_id=gui_main.CASE_DEFINITIONS[case_id].category_id,
+            case_id=case_id,
+            run_id=f"{case_id}_20260402_000000",
+            status="completed",
+            backend_mode="protocol_julia",
+            curve_kind="force_displacement",
+            run_profile="preview",
+            source_script="",
+            run_dir=str(self.runs_dir / case_id / f"{case_id}_20260402_000000"),
+            runtime_params_path="",
+            native_output_dir=str(native_dir),
+            mesh_paths=[str(mesh_msh), str(mesh_png)],
+            curve_csv_paths=[str(curve_csv)],
+            damage_paths=[str(damage_png)],
+            displacement_paths=[str(displacement_png)],
+        )
+        write_manifest(self.manifest_dir / f"{case_id}_latest.json", manifest)
 
     def test_fatigue_case_exposes_curve_view(self):
         self._open_window()
@@ -220,6 +261,83 @@ class GuiPostprocessTests(unittest.TestCase):
         viewer.zoom_in()
         self.app.processEvents()
         self.assertIsNotNone(viewer.image_label.pixmap())
+
+    def test_postprocess_stack_does_not_use_opacity_animation_on_view_change(self):
+        case_id = "sent_tension"
+        self._write_postprocess_manifest(case_id)
+
+        self._open_window()
+        self._select_case(case_id)
+        self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
+        self.window.tabs.setCurrentIndex(self.window.post_tab_index)
+        self._flush_events()
+
+        with mock.patch.object(self.window, "_animations_enabled", return_value=True):
+            self.window.postprocess_view_combo.setCurrentText("Curve")
+            self._flush_events()
+
+        self.assertFalse(isinstance(self.window.postprocess_stack.graphicsEffect(), QGraphicsOpacityEffect))
+        self.assertIs(self.window.postprocess_stack.currentWidget(), self.window.postprocess_curve_canvas)
+
+    def test_postprocess_image_viewer_supports_ctrl_wheel_zoom(self):
+        self._write_postprocess_manifest("sent_tension")
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
+        self.window.tabs.setCurrentIndex(self.window.post_tab_index)
+        self.window.postprocess_view_combo.setCurrentText("Damage")
+        self._flush_events()
+
+        viewer = self.window.postprocess_label
+        self.assertTrue(viewer.has_image())
+        viewer.show_actual_size()
+        self._flush_events()
+
+        start_scale = viewer._current_scale_factor()
+        wheel_event = QWheelEvent(
+            QPointF(100, 100),
+            QPointF(100, 100),
+            QPoint(0, 0),
+            QPoint(0, 120),
+            Qt.NoButton,
+            Qt.ControlModifier,
+            Qt.NoScrollPhase,
+            False,
+        )
+        QApplication.sendEvent(viewer.scroll_area.viewport(), wheel_event)
+        self._flush_events()
+
+        self.assertGreater(viewer._current_scale_factor(), start_scale)
+
+    def test_postprocess_image_viewer_supports_keyboard_zoom_shortcuts(self):
+        self._write_postprocess_manifest("sent_tension")
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.window.tabs.setTabEnabled(self.window.post_tab_index, True)
+        self.window.tabs.setCurrentIndex(self.window.post_tab_index)
+        self.window.postprocess_view_combo.setCurrentText("Damage")
+        self._flush_events()
+
+        viewer = self.window.postprocess_label
+        self.assertTrue(viewer.has_image())
+        viewer.setFocus()
+        self._flush_events()
+
+        fit_scale = viewer._current_scale_factor()
+        QTest.keyClick(viewer, Qt.Key_Equal, Qt.ControlModifier)
+        self._flush_events()
+        zoomed_scale = viewer._current_scale_factor()
+        self.assertGreater(zoomed_scale, fit_scale)
+
+        QTest.keyClick(viewer, Qt.Key_0, Qt.ControlModifier)
+        self._flush_events()
+        self.assertLess(viewer._current_scale_factor(), zoomed_scale)
+
+        QTest.keyClick(viewer, Qt.Key_1, Qt.ControlModifier)
+        self._flush_events()
+        self.assertAlmostEqual(viewer._current_scale_factor(), 1.0, places=2)
 
     def test_postprocess_tab_stays_scrollable_in_compact_window(self):
         self._open_window()

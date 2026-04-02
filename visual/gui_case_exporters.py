@@ -370,6 +370,13 @@ def _configure_vertical_colorbar(cb, norm: mpl.colors.Normalize, title: str):
     cb.ax.set_title(title, fontsize=22, pad=8)
 
 
+def _configure_horizontal_colorbar(cb, norm: mpl.colors.Normalize, title: str):
+    cb.set_ticks(np.linspace(norm.vmin, norm.vmax, 5))
+    cb.ax.xaxis.set_major_formatter(_colorbar_formatter(norm))
+    cb.ax.tick_params(labelsize=16)
+    cb.set_label(title, fontsize=18, labelpad=6)
+
+
 def _style_curve_axes(ax, xlabel: str, ylabel: str, title: str):
     ax.set_facecolor("white")
     ax.grid(True, color="#c7d3de", linewidth=1.0, alpha=0.85)
@@ -536,41 +543,47 @@ def _export_protocol_panel(
     note_key: str,
     line_segment: tuple[tuple[float, float], tuple[float, float]] | None = None,
 ):
-    n_rows = len(row_specs)
-    n_cols = len(snaps)
-    figure = plt.figure(figsize=(4.6 * n_cols + 1.5, 4.0 * n_rows + 0.8))
+    if not snaps:
+        raise FileNotFoundError("No protocol snapshots found for panel export.")
+
+    panel_snap = snaps[-1]
+    x_bounds, y_bounds = _bounds_from_crop_or_tri(None, None, panel_snap["tri"])
+    n_cols = len(row_specs)
+    figure = plt.figure(figsize=(5.4 * n_cols + 0.8, 5.6))
     grid = GridSpec(
-        n_rows,
+        1,
         n_cols,
         figure=figure,
-        hspace=0.10,
-        wspace=0.035,
-        left=0.10,
-        right=0.88,
-        top=0.91,
-        bottom=0.05,
+        hspace=0.0,
+        wspace=0.28,
+        left=0.05,
+        right=0.98,
+        top=0.84,
+        bottom=0.16,
     )
-    axes = [[figure.add_subplot(grid[r, c]) for c in range(n_cols)] for r in range(n_rows)]
+    axes = [figure.add_subplot(grid[0, col_index]) for col_index in range(n_cols)]
+    note_text = str(panel_snap.get(note_key, ""))
 
-    for row_index, (field_key, cmap_name, norm, row_label, cbar_title) in enumerate(row_specs):
+    for col_index, (field_key, cmap_name, norm, panel_label, cbar_title) in enumerate(row_specs):
+        ax = axes[col_index]
         cmap = plt.get_cmap(cmap_name)
-        for col_index, snap in enumerate(snaps):
-            ax = axes[row_index][col_index]
-            ax.tripcolor(snap["tri"], snap[field_key], cmap=cmap, norm=norm, shading="gouraud", rasterized=True)
-            if line_segment is not None:
-                (x0, y0), (x1, y1) = line_segment
-                ax.plot([x0, x1], [y0, y1], color="white", linewidth=1.4, solid_capstyle="round")
-            ax.set_xlim(0.0, 1.0)
-            ax.set_ylim(0.0, 1.0)
-            ax.set_aspect("equal")
-            ax.axis("off")
-            ax.add_patch(
-                Rectangle((0, 0), 1, 1, transform=ax.transAxes, fill=False, edgecolor=PANEL_BORDER_COLOR, linewidth=2.3, zorder=20)
-            )
+        ax.tripcolor(panel_snap["tri"], panel_snap[field_key], cmap=cmap, norm=norm, shading="gouraud", rasterized=True)
+        if line_segment is not None:
+            (x0, y0), (x1, y1) = line_segment
+            ax.plot([x0, x1], [y0, y1], color="white", linewidth=1.4, solid_capstyle="round")
+        ax.set_xlim(x_bounds)
+        ax.set_ylim(y_bounds)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        ax.add_patch(
+            Rectangle((0, 0), 1, 1, transform=ax.transAxes, fill=False, edgecolor=PANEL_BORDER_COLOR, linewidth=2.3, zorder=20)
+        )
+        ax.set_title(panel_label, fontsize=20, pad=8)
+        if note_text:
             ax.text(
                 0.50,
                 0.91,
-                str(snap.get(note_key, "")),
+                note_text,
                 transform=ax.transAxes,
                 ha="center",
                 va="top",
@@ -578,15 +591,17 @@ def _export_protocol_panel(
                 color="white",
                 zorder=25,
             )
-            if row_index == 0 and col_index < len(col_titles):
-                ax.set_title(col_titles[col_index], fontsize=20, pad=7)
+        colorbar = figure.colorbar(
+            mpl.cm.ScalarMappable(norm=norm, cmap=cmap),
+            ax=ax,
+            orientation="horizontal",
+            fraction=0.05,
+            pad=0.035,
+        )
+        _configure_horizontal_colorbar(colorbar, norm, cbar_title)
 
-        position = axes[row_index][0].get_position()
-        figure.text(0.06, 0.5 * (position.y0 + position.y1), row_label, rotation=90, ha="center", va="center", fontsize=20)
-        top_position = axes[row_index][-1].get_position()
-        cax = figure.add_axes([top_position.x1 + 0.012, position.y0, 0.018, position.height])
-        colorbar = figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax)
-        _configure_vertical_colorbar(colorbar, norm, cbar_title)
+    if col_titles:
+        figure.suptitle(col_titles[-1], y=0.965, fontsize=22)
 
     return _save_figure(figure, output_path)
 

@@ -21,7 +21,7 @@ from PyQt5.QtCore import (
     Qt,
     pyqtSignal,
 )
-from PyQt5.QtGui import QColor, QFont, QFontDatabase, QPixmap
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QBoxLayout,
@@ -40,6 +40,7 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QShortcut,
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
@@ -430,6 +431,8 @@ class ImagePreviewWidget(QWidget):
         self._base_pixmap = QPixmap()
         self._scale_factor = 1.0
         self._fit_to_view = True
+        self._last_render_signature = None
+        self._render_pending = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -458,16 +461,45 @@ class ImagePreviewWidget(QWidget):
 
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumHeight(420)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self._zoom_shortcuts = []
+        self._install_zoom_shortcuts()
         self._update_controls()
 
     def has_image(self) -> bool:
         return not self._base_pixmap.isNull()
+
+    def _install_zoom_shortcuts(self):
+        shortcut_bindings = (
+            ("Ctrl+=", self.zoom_in),
+            ("Ctrl++", self.zoom_in),
+            ("Ctrl+-", self.zoom_out),
+            ("Ctrl+0", self.fit_to_view),
+            ("Ctrl+1", self.show_actual_size),
+        )
+        for sequence_text, handler in shortcut_bindings:
+            shortcut = QShortcut(QKeySequence(sequence_text), self)
+            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(handler)
+            self._zoom_shortcuts.append(shortcut)
+
+    def _schedule_render_pixmap(self):
+        if self._render_pending:
+            return
+        self._render_pending = True
+        QTimer.singleShot(0, self._flush_scheduled_render)
+
+    def _flush_scheduled_render(self):
+        self._render_pending = False
+        self._render_pixmap()
 
     def clear_image(self, placeholder_text: str):
         self._placeholder_text = placeholder_text
         self._base_pixmap = QPixmap()
         self._scale_factor = 1.0
         self._fit_to_view = True
+        self._last_render_signature = None
+        self._render_pending = False
         self.image_label.setPixmap(QPixmap())
         self.image_label.setText(placeholder_text)
         self.image_label.adjustSize()
@@ -487,6 +519,7 @@ class ImagePreviewWidget(QWidget):
         self._base_pixmap = pixmap
         self._scale_factor = 1.0
         self._fit_to_view = True
+        self._last_render_signature = None
         self._render_pixmap()
         self._update_controls()
 
@@ -542,23 +575,32 @@ class ImagePreviewWidget(QWidget):
             viewport = self.scroll_area.viewport().size()
             target_width = max(1, viewport.width() - 4)
             target_height = max(1, viewport.height() - 4)
+            render_signature = ("fit", target_width, target_height, self._base_pixmap.cacheKey())
+            if render_signature == self._last_render_signature:
+                self._update_controls()
+                return
             scaled = self._base_pixmap.scaled(target_width, target_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             scale_text = "Fit"
         else:
             target_width = max(1, int(round(self._base_pixmap.width() * self._scale_factor)))
             target_height = max(1, int(round(self._base_pixmap.height() * self._scale_factor)))
-            scaled = self._base_pixmap.scaled(target_width, target_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            render_signature = ("manual", target_width, target_height, self._base_pixmap.cacheKey())
+            if render_signature == self._last_render_signature:
+                self._update_controls()
+                return
+            scaled = self._base_pixmap.scaled(target_width, target_height, Qt.KeepAspectRatio, Qt.FastTransformation)
             scale_text = f"{int(round(self._scale_factor * 100))}%"
 
+        self._last_render_signature = render_signature
         self.image_label.setText("")
         self.image_label.setPixmap(scaled)
         self.image_label.resize(scaled.size())
         self.image_label.adjustSize()
-        self.scroll_area.viewport().setToolTip(
-            f"Ctrl+Wheel: zoom\nDouble-click: fit / actual size\nCurrent Scale: {scale_text}"
-        )
+        self._update_controls(scale_text=scale_text)
 
     def _handle_ctrl_wheel_zoom(self, event, cursor_pos=None):
+        if not self.isVisible() or not self.scroll_area.isVisible():
+            return
         delta = event.angleDelta().y() or event.angleDelta().x()
         if delta == 0:
             return
@@ -584,11 +626,14 @@ class ImagePreviewWidget(QWidget):
         step = max(60, int(round(self.scroll_area.viewport().height() * 0.18)))
         scrollbar.setValue(scrollbar.value() + direction * step)
 
-    def _update_controls(self):
-        self.scroll_area.viewport().setToolTip("Ctrl+Wheel: zoom\nDouble-click: fit / actual size")
+    def _update_controls(self, scale_text: str | None = None):
+        tooltip = "Ctrl+Wheel: zoom\nCtrl+=/-: zoom\nCtrl+0: fit\nCtrl+1: actual size\nDouble-click: fit / actual size"
+        if scale_text is not None:
+            tooltip = f"{tooltip}\nCurrent Scale: {scale_text}"
+        self.scroll_area.viewport().setToolTip(tooltip)
 
     def eventFilter(self, watched, event):
-        if watched in {self.scroll_area, self.scroll_area.viewport(), self.image_label}:
+        if watched in {self.scroll_area, self.scroll_area.viewport(), self.image_label} and self.isVisible():
             if event.type() == QEvent.Wheel and self.has_image() and (event.modifiers() & Qt.ControlModifier):
                 cursor_pos = event.pos()
                 if watched is not self.scroll_area.viewport():
@@ -606,7 +651,7 @@ class ImagePreviewWidget(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._fit_to_view and self.has_image():
-            self._render_pixmap()
+            self._schedule_render_pixmap()
 
 
 class ProtocolJuliaWorker(QThread):
@@ -3660,11 +3705,9 @@ class MainWindow(QMainWindow):
         view_name = self.postprocess_view_combo.currentText()
         selected_path = self.history_combo.currentData()
         apply_content = lambda: self._render_postprocess_view(view_name, selected_path)
+        apply_content()
         if animate and self._animations_enabled():
-            self._animate_content_swap(self.postprocess_stack, apply_content)
             self._animate_widget_opacity(self.postprocess_detail_label, start=0.36, end=1.0, duration=ANIMATION_MEDIUM_MS)
-        else:
-            apply_content()
 
     def open_in_paraview(self):
         latest_vtk = self._current_state()["latest_vtk_path"]
