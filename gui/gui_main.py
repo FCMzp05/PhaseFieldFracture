@@ -106,6 +106,7 @@ MANIFEST_DIR = RESULTS_DIR / "manifests"
 RUNS_DIR = RESULTS_DIR / "runs"
 VISUAL_EXPORT_DIR = RESULTS_DIR / "visual_exports"
 STOP_FLAG = GUI_DIR / "gui_stop.flag"
+TRANSIENT_CACHE_PREF_PATH = GUI_DIR / ".gui_cache_pref.json"
 DEFAULT_PARAMS_PATH = GUI_DIR / "params_default.json"
 PREFERRED_SERIF_FONT_FAMILY = "Times"
 SERIF_FONT_FAMILY_CANDIDATES = (
@@ -296,6 +297,21 @@ def purge_transient_gui_results() -> None:
 
     if STOP_FLAG.exists():
         STOP_FLAG.unlink()
+
+
+def load_transient_cache_preference() -> bool:
+    if not TRANSIENT_CACHE_PREF_PATH.exists():
+        return False
+    try:
+        payload = json.loads(TRANSIENT_CACHE_PREF_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return bool(payload.get("keep_transient_results", False))
+
+
+def write_transient_cache_preference(enabled: bool) -> None:
+    payload = {"keep_transient_results": bool(enabled)}
+    TRANSIENT_CACHE_PREF_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def normalize_run_profile(raw_profile: str | None, fallback: str = "full") -> str:
@@ -797,6 +813,7 @@ class MainWindow(QMainWindow):
         self._toast_hide_timer.setSingleShot(True)
         self._toast_hide_timer.timeout.connect(self._hide_toast)
         self._compute_curve_collapsed = False
+        self.keep_transient_results = load_transient_cache_preference()
 
         self.paraview_executable = shutil.which("paraview")
         self.run_profile_overrides = {}
@@ -814,6 +831,7 @@ class MainWindow(QMainWindow):
         self._apply_theme()
         self._apply_depth_effects()
         self._register_animated_buttons()
+        self._sync_transient_cache_button()
         self._load_manifests_from_disk()
         self._sync_category_combo()
         self._refresh_case_combo(self.current_category, preferred_case_id=self.current_case)
@@ -1005,8 +1023,14 @@ class MainWindow(QMainWindow):
         self.case_status_badge.setWordWrap(False)
         badge_row = QHBoxLayout()
         badge_row.setContentsMargins(0, 0, 0, 0)
-        badge_row.setSpacing(0)
+        badge_row.setSpacing(12)
         badge_row.addWidget(self.case_status_badge)
+        self.keep_cache_button = QPushButton("Keep Temp Cache")
+        self.keep_cache_button.setCheckable(True)
+        self.keep_cache_button.setProperty("variant", "secondary")
+        self.keep_cache_button.setProperty("toggle_button", True)
+        self.keep_cache_button.toggled.connect(self.on_keep_cache_toggled)
+        badge_row.addWidget(self.keep_cache_button, stretch=0)
         badge_row.addStretch(1)
         header_layout.addLayout(badge_row)
         root_layout.addWidget(header_card)
@@ -1654,6 +1678,14 @@ class MainWindow(QMainWindow):
                 font-weight: 700;
                 border-radius: 15px;
             }}
+            QPushButton[toggle_button="true"]:checked {{
+                background: #d7e6f6;
+                border: 1px solid #7f9fbf;
+                color: #15324d;
+            }}
+            QPushButton[toggle_button="true"]:checked:hover {{
+                background: #cfe0f2;
+            }}
             QPushButton[variant="primary"] {{
                 background: qlineargradient(
                     x1:0, y1:0, x2:1, y2:0,
@@ -1875,6 +1907,7 @@ class MainWindow(QMainWindow):
             self.scan_add_button,
             self.scan_remove_button,
             self.scan_reset_button,
+            self.keep_cache_button,
             self.open_paraview_button,
             self.export_results_button,
         ):
@@ -2156,6 +2189,7 @@ class MainWindow(QMainWindow):
         self.scan_reset_button.setMinimumWidth(0 if compact_actions else 120)
         self.run_button.setMinimumWidth(0 if compact_actions else 110)
         self.stop_button.setMinimumWidth(0 if compact_actions else 110)
+        self.keep_cache_button.setMinimumWidth(0 if compact_actions else 170)
         self.open_paraview_button.setMinimumWidth(0 if compact_actions else 150)
         self.export_results_button.setMinimumWidth(0 if compact_actions else 120)
 
@@ -2164,6 +2198,29 @@ class MainWindow(QMainWindow):
         self.curve_toggle_button.setText("▴" if self._compute_curve_collapsed else "▾")
         self.curve_toggle_button.setToolTip("Expand live curve" if self._compute_curve_collapsed else "Collapse live curve")
         self._apply_responsive_layout()
+
+    def _sync_transient_cache_button(self):
+        enabled = bool(self.keep_transient_results)
+        self.keep_cache_button.blockSignals(True)
+        self.keep_cache_button.setChecked(enabled)
+        self.keep_cache_button.blockSignals(False)
+        self.keep_cache_button.setToolTip(
+            "Troubleshooting mode is on. Current mesh and compute cache will be kept after restart."
+            if enabled
+            else "Troubleshooting mode is off. Current mesh and compute cache will be purged on restart."
+        )
+        self.keep_cache_button.setText("Keep Temp Cache On" if enabled else "Keep Temp Cache Off")
+        self.style().unpolish(self.keep_cache_button)
+        self.style().polish(self.keep_cache_button)
+
+    def on_keep_cache_toggled(self, checked: bool):
+        self.keep_transient_results = bool(checked)
+        write_transient_cache_preference(self.keep_transient_results)
+        self._sync_transient_cache_button()
+        self._show_toast(
+            "Temporary cache retention enabled." if self.keep_transient_results else "Temporary cache retention disabled.",
+            "success" if self.keep_transient_results else "warning",
+        )
 
     def _sync_category_combo(self):
         self._syncing_selection = True
@@ -3742,6 +3799,7 @@ class MainWindow(QMainWindow):
             self.generate_mesh_button,
             self.run_button,
             self.stop_button,
+            self.keep_cache_button,
             self.scan_add_button,
             self.scan_remove_button,
             self.scan_reset_button,
@@ -3756,7 +3814,8 @@ class MainWindow(QMainWindow):
             self.worker.stop()
             self.worker.wait(5000)
         self.cleanup_runtime_params()
-        purge_transient_gui_results()
+        if not self.keep_transient_results:
+            purge_transient_gui_results()
         super().closeEvent(event)
 
     def showEvent(self, event):
@@ -3774,7 +3833,8 @@ class MainWindow(QMainWindow):
 
 
 def main():
-    purge_transient_gui_results()
+    if not load_transient_cache_preference():
+        purge_transient_gui_results()
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)

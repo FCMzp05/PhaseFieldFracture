@@ -70,6 +70,7 @@
 - 已在 mesh / compute 启动时显式清空实时日志框，减少旧日志残留到新一轮运行前的显示问题
 - 已将 `Live Curve` 的坐标轴/刻度/图例字号局部下调，减轻大字号下的拥挤感
 - 已将 compute 页缩放时的重复预览重载链移除，缩放改为依赖预览器自身重绘，并把实时图区折叠按钮改为小箭头、收敛多余内框
+- 已在页头补 `Keep Temp Cache` 临时排查开关；开启后启动/关闭 GUI 时不会清理当前 mesh / compute 缓存，便于下次直接回看结果
 
 ### 部分完成
 
@@ -123,7 +124,7 @@ julia gui/gui_solver.jl gui/params_default.json
 
 - 输入：在 GUI 中选择预设 case，并填写参数；或直接向 `gui/gui_solver.jl` 传入 JSON 参数文件
 - 输出：运行结果写入 `gui/gui_results/runs/<case_id>/<run_id>/`，包括 `runtime_params.json`、manifest、曲线、快照、VTK、mesh 预览和 `visual` 导出图；batch case runtime payload 额外包含 `run_profile / scan_cases`
-- 关闭 GUI 且未另存时，`gui/gui_results/` 下的 GUI 缓存会被自动清理
+- 关闭 GUI 且未另存时，`gui/gui_results/` 下的 GUI 缓存默认会自动清理；若在页头开启 `Keep Temp Cache`，则会保留到下次启动继续查看
 
 ## 仓库结构
 
@@ -159,6 +160,7 @@ peng_pf_ui/
 - 继续细化预览区交互，重点看超大图片下的横向滚动、快捷键缩放和控件占宽
 - 继续观察 mesh 生成过程中的实时预览刷新，重点看首张快照到达时的交互稳定性
 - 继续观察 compute 预览区在更小窗口与不同字体环境下的曲线留白和滚动条细节
+- 继续观察 `Keep Temp Cache` 临时排查模式下的跨重启回显稳定性与磁盘占用
 - 继续观察 `Post-process` 页在更窄窗口与高 DPI 下的滚动节奏、按钮密度和视图切换稳定性
 - 继续观察更大字号与更深配色在不同 Linux 字体回退和显示缩放下的控件密度
 - 继续观察头部 case 简介在更窄窗口下的换行表现，并评估是否还需要补不显眼的快捷键提示

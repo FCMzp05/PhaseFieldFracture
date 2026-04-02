@@ -28,6 +28,7 @@ class GuiPostprocessTests(unittest.TestCase):
         self.manifest_dir = self.results_dir / "manifests"
         self.runs_dir = self.results_dir / "runs"
         self.visual_export_dir = self.results_dir / "visual_exports"
+        self.cache_pref_path = self.temp_path / "gui_cache_pref.json"
         for directory in (self.results_dir, self.manifest_dir, self.runs_dir, self.visual_export_dir):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -37,6 +38,7 @@ class GuiPostprocessTests(unittest.TestCase):
             mock.patch.object(gui_main, "RUNS_DIR", self.runs_dir),
             mock.patch.object(gui_main, "VISUAL_EXPORT_DIR", self.visual_export_dir),
             mock.patch.object(gui_main, "STOP_FLAG", self.temp_path / "gui_stop.flag"),
+            mock.patch.object(gui_main, "TRANSIENT_CACHE_PREF_PATH", self.cache_pref_path),
         ]
         for patcher in self.patchers:
             patcher.start()
@@ -241,6 +243,49 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertFalse(self.window._compute_curve_collapsed)
         self.assertFalse(self.window.curve_surface.isHidden())
         self.assertEqual(self.window.curve_toggle_button.text(), "▾")
+        self.assertFalse(self.window.keep_cache_button.isChecked())
+        self.assertEqual(self.window.keep_cache_button.text(), "Keep Temp Cache Off")
+
+    def test_default_close_purges_transient_results(self):
+        run_dir = self.runs_dir / "sent_tension" / "sent_tension_20260402_000000"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        payload_path = run_dir / "snap_SENT_0001.png"
+        payload_path.write_text("cached", encoding="utf-8")
+
+        self._open_window()
+        self.window.close()
+        self.app.processEvents()
+        self.window = None
+
+        self.assertFalse(run_dir.exists())
+
+    def test_keep_temp_cache_button_preserves_results_across_reopen(self):
+        run_dir = self.runs_dir / "sent_tension" / "sent_tension_20260402_000000"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        payload_path = run_dir / "snap_SENT_0001.png"
+        payload_path.write_text("cached", encoding="utf-8")
+
+        self._open_window()
+        self.window.show()
+        self._flush_events()
+        self.window.keep_cache_button.click()
+        self._flush_events()
+
+        self.assertTrue(self.window.keep_transient_results)
+        self.assertTrue(gui_main.load_transient_cache_preference())
+        self.assertEqual(self.window.keep_cache_button.text(), "Keep Temp Cache On")
+
+        self.window.close()
+        self.app.processEvents()
+        self.window = None
+
+        self.assertTrue(run_dir.exists())
+        self.assertTrue(payload_path.exists())
+
+        self._open_window()
+        self.assertTrue(self.window.keep_transient_results)
+        self.assertTrue(self.window.keep_cache_button.isChecked())
+        self.assertEqual(self.window.keep_cache_button.text(), "Keep Temp Cache On")
 
     def test_compute_live_preview_panel_shows_damage_and_displacement(self):
         self._open_window()
