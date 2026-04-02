@@ -425,12 +425,13 @@ class CurveCanvas(FigureCanvas):
 
 
 class ImagePreviewWidget(QWidget):
-    def __init__(self, placeholder_text: str, *, surface_variant: str = "framed"):
+    def __init__(self, placeholder_text: str, *, surface_variant: str = "framed", fixed_fit: bool = False):
         super().__init__()
         self._placeholder_text = placeholder_text
         self._base_pixmap = QPixmap()
         self._scale_factor = 1.0
         self._fit_to_view = True
+        self._fixed_fit = fixed_fit
         self._last_render_signature = None
         self._render_pending = False
 
@@ -450,8 +451,12 @@ class ImagePreviewWidget(QWidget):
         self.scroll_area.setWidgetResizable(False)
         self.scroll_area.setAlignment(Qt.AlignCenter)
         self.scroll_area.setFrameShape(QScrollArea.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        if self._fixed_fit:
+            self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        else:
+            self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll_area.setFocusPolicy(Qt.StrongFocus)
         self.scroll_area.viewport().setFocusPolicy(Qt.StrongFocus)
         self.scroll_area.installEventFilter(self)
@@ -530,16 +535,20 @@ class ImagePreviewWidget(QWidget):
         self._render_pixmap()
 
     def show_actual_size(self):
-        if not self.has_image():
+        if not self.has_image() or self._fixed_fit:
             return
         self._fit_to_view = False
         self._scale_factor = 1.0
         self._render_pixmap()
 
     def zoom_in(self):
+        if self._fixed_fit:
+            return
         self._set_manual_scale(self._current_scale_factor() * 1.2)
 
     def zoom_out(self):
+        if self._fixed_fit:
+            return
         self._set_manual_scale(self._current_scale_factor() / 1.2)
 
     def scroll_up(self):
@@ -549,7 +558,7 @@ class ImagePreviewWidget(QWidget):
         self._scroll_vertically(1)
 
     def _set_manual_scale(self, scale_factor: float):
-        if not self.has_image():
+        if not self.has_image() or self._fixed_fit:
             return
         self._fit_to_view = False
         self._scale_factor = max(0.2, min(scale_factor, 6.0))
@@ -627,20 +636,23 @@ class ImagePreviewWidget(QWidget):
         scrollbar.setValue(scrollbar.value() + direction * step)
 
     def _update_controls(self, scale_text: str | None = None):
-        tooltip = "Ctrl+Wheel: zoom\nCtrl+=/-: zoom\nCtrl+0: fit\nCtrl+1: actual size\nDouble-click: fit / actual size"
+        if self._fixed_fit:
+            tooltip = "Fixed fit preview"
+        else:
+            tooltip = "Ctrl+Wheel: zoom\nCtrl+=/-: zoom\nCtrl+0: fit\nCtrl+1: actual size\nDouble-click: fit / actual size"
         if scale_text is not None:
             tooltip = f"{tooltip}\nCurrent Scale: {scale_text}"
         self.scroll_area.viewport().setToolTip(tooltip)
 
     def eventFilter(self, watched, event):
         if watched in {self.scroll_area, self.scroll_area.viewport(), self.image_label} and self.isVisible():
-            if event.type() == QEvent.Wheel and self.has_image() and (event.modifiers() & Qt.ControlModifier):
+            if not self._fixed_fit and event.type() == QEvent.Wheel and self.has_image() and (event.modifiers() & Qt.ControlModifier):
                 cursor_pos = event.pos()
                 if watched is not self.scroll_area.viewport():
                     cursor_pos = watched.mapTo(self.scroll_area.viewport(), event.pos())
                 self._handle_ctrl_wheel_zoom(event, cursor_pos)
                 return True
-            if event.type() == QEvent.MouseButtonDblClick and self.has_image():
+            if not self._fixed_fit and event.type() == QEvent.MouseButtonDblClick and self.has_image():
                 if self._fit_to_view:
                     self.show_actual_size()
                 else:
@@ -1297,7 +1309,11 @@ class MainWindow(QMainWindow):
         damage_layout.setContentsMargins(16, 14, 16, 16)
         damage_layout.setSpacing(10)
         damage_layout.addWidget(self._create_section_label("Damage Contour"))
-        self.damage_label = self._create_image_viewer("Damage snapshot will appear here.", surface_variant="borderless")
+        self.damage_label = self._create_image_viewer(
+            "Damage snapshot will appear here.",
+            surface_variant="borderless",
+            fixed_fit=True,
+        )
         self.damage_label.setMinimumHeight(320)
         self.damage_surface = self._create_preview_surface(self.damage_label)
         damage_layout.addWidget(self.damage_surface, stretch=1)
@@ -1309,7 +1325,11 @@ class MainWindow(QMainWindow):
         displacement_layout.setContentsMargins(16, 14, 16, 16)
         displacement_layout.setSpacing(10)
         displacement_layout.addWidget(self._create_section_label("Displacement Contour"))
-        self.displacement_label = self._create_image_viewer("Displacement snapshot will appear here.", surface_variant="borderless")
+        self.displacement_label = self._create_image_viewer(
+            "Displacement snapshot will appear here.",
+            surface_variant="borderless",
+            fixed_fit=True,
+        )
         self.displacement_label.setMinimumHeight(320)
         self.displacement_surface = self._create_preview_surface(self.displacement_label)
         displacement_layout.addWidget(self.displacement_surface, stretch=1)
@@ -1430,8 +1450,8 @@ class MainWindow(QMainWindow):
         label.hide()
         return label
 
-    def _create_image_viewer(self, text: str, *, surface_variant: str = "framed"):
-        return ImagePreviewWidget(text, surface_variant=surface_variant)
+    def _create_image_viewer(self, text: str, *, surface_variant: str = "framed", fixed_fit: bool = False):
+        return ImagePreviewWidget(text, surface_variant=surface_variant, fixed_fit=fixed_fit)
 
     def _create_image_label(self, text: str):
         label = QLabel(text)
