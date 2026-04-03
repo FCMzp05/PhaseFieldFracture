@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import os
 import re
@@ -8,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from collections import OrderedDict
 from pathlib import Path
 
 import matplotlib as mpl
@@ -66,7 +66,14 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from visual import export_visuals
-from visual.gui_case_exporters import _compute_protocol_von_mises, _scalar_field, _triangulation, _vector_field
+from visual.gui_case_exporters import (
+    _compute_protocol_von_mises,
+    _scalar_field,
+    _triangulation,
+    _vector_field,
+    read_csv_table_cached,
+    read_mesh_cached,
+)
 
 if __package__ in (None, ""):
     from case_registry import (
@@ -135,6 +142,8 @@ ANIMATION_FAST_MS = 150
 ANIMATION_MEDIUM_MS = 220
 ANIMATION_SLOW_MS = 320
 ANIMATION_TOAST_STAY_MS = 2200
+LIVE_CURVE_REFRESH_INTERVAL_MS = 120
+POSTPROCESS_REFRESH_DEBOUNCE_MS = 0
 JULIA_COMMAND = "julia"
 DEFAULT_JULIA_THREADS = "auto"
 SUBTITLE_FONT_SIZE = 18
@@ -548,6 +557,7 @@ class ImagePreviewWidget(QWidget):
         self._fixed_fit = fixed_fit
         self._last_render_signature = None
         self._render_pending = False
+        self._scaled_pixmap_cache: OrderedDict[tuple[object, ...], QPixmap] = OrderedDict()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -620,6 +630,7 @@ class ImagePreviewWidget(QWidget):
         self._fit_to_view = True
         self._last_render_signature = None
         self._render_pending = False
+        self._scaled_pixmap_cache.clear()
         self.image_label.setPixmap(QPixmap())
         self.image_label.setText(placeholder_text)
         self.image_label.adjustSize()
@@ -640,8 +651,21 @@ class ImagePreviewWidget(QWidget):
         self._scale_factor = 1.0
         self._fit_to_view = True
         self._last_render_signature = None
+        self._scaled_pixmap_cache.clear()
         self._render_pixmap()
         self._update_controls()
+
+    def _cached_scaled_pixmap(self, cache_key: tuple[object, ...], width: int, height: int, transform_mode):
+        cached_pixmap = self._scaled_pixmap_cache.get(cache_key)
+        if cached_pixmap is not None:
+            self._scaled_pixmap_cache.move_to_end(cache_key)
+            return cached_pixmap
+        scaled = self._base_pixmap.scaled(width, height, Qt.KeepAspectRatio, transform_mode)
+        self._scaled_pixmap_cache[cache_key] = scaled
+        self._scaled_pixmap_cache.move_to_end(cache_key)
+        while len(self._scaled_pixmap_cache) > 12:
+            self._scaled_pixmap_cache.popitem(last=False)
+        return scaled
 
     def fit_to_view(self):
         if not self.has_image():
@@ -703,7 +727,12 @@ class ImagePreviewWidget(QWidget):
             if render_signature == self._last_render_signature:
                 self._update_controls()
                 return
-            scaled = self._base_pixmap.scaled(target_width, target_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled = self._cached_scaled_pixmap(
+                ("fit", target_width, target_height, self._base_pixmap.cacheKey()),
+                target_width,
+                target_height,
+                Qt.SmoothTransformation,
+            )
             scale_text = "Fit"
         else:
             target_width = max(1, int(round(self._base_pixmap.width() * self._scale_factor)))
@@ -712,7 +741,12 @@ class ImagePreviewWidget(QWidget):
             if render_signature == self._last_render_signature:
                 self._update_controls()
                 return
-            scaled = self._base_pixmap.scaled(target_width, target_height, Qt.KeepAspectRatio, Qt.FastTransformation)
+            scaled = self._cached_scaled_pixmap(
+                ("manual", target_width, target_height, self._base_pixmap.cacheKey()),
+                target_width,
+                target_height,
+                Qt.FastTransformation,
+            )
             scale_text = f"{int(round(self._scale_factor * 100))}%"
 
         self._last_render_signature = render_signature
@@ -1037,6 +1071,14 @@ class MainWindow(QMainWindow):
         self._toast_hide_timer = QTimer(self)
         self._toast_hide_timer.setSingleShot(True)
         self._toast_hide_timer.timeout.connect(self._hide_toast)
+        self._curve_refresh_timer = QTimer(self)
+        self._curve_refresh_timer.setSingleShot(True)
+        self._curve_refresh_timer.timeout.connect(self._flush_live_curve_refresh)
+        self._postprocess_refresh_timer = QTimer(self)
+        self._postprocess_refresh_timer.setSingleShot(True)
+        self._postprocess_refresh_timer.timeout.connect(self._flush_postprocess_refresh)
+        self._pending_postprocess_refresh: dict[str, object] | None = None
+        self._csv_xy_cache: dict[tuple[str, int, int, str, str], tuple[list[float], list[float]]] = {}
         self._compute_curve_collapsed = False
         self.keep_transient_results = load_transient_cache_preference()
 
@@ -1056,7 +1098,6 @@ class MainWindow(QMainWindow):
         self.toast_label = self._build_toast_label(self.centralWidget())
         self._register_animated_buttons()
         self._sync_transient_cache_button()
-        self._load_manifests_from_disk()
         self._sync_category_combo()
         self._refresh_case_combo(self.current_category, preferred_case_id=self.current_case)
         self._apply_case_params_to_inputs(self.current_case)
@@ -1155,6 +1196,7 @@ class MainWindow(QMainWindow):
             "history_selection": {view_name: None for view_name in POSTPROCESS_VIEWS},
             "manifest_path": None,
             "manifest": None,
+            "manifest_checked": False,
             "run_id": None,
             "run_dir": None,
             "runtime_params_path": None,
@@ -2593,11 +2635,24 @@ class MainWindow(QMainWindow):
 
         return None, None
 
+    def _ensure_manifest_loaded(self, case_id: str):
+        state = self.case_states[case_id]
+        if state.get("manifest_checked"):
+            return
+        case = CASE_DEFINITIONS[case_id]
+        manifest_path, manifest = self._load_saved_manifest_for_case(case)
+        if manifest is not None and manifest_path is not None:
+            self._apply_manifest_to_state(case_id, manifest_path, manifest)
+        else:
+            state["manifest_checked"] = True
+
     def _load_manifests_from_disk(self):
         for case in CASE_REGISTRY:
             manifest_path, manifest = self._load_saved_manifest_for_case(case)
             if manifest is not None and manifest_path is not None:
                 self._apply_manifest_to_state(case.case_id, manifest_path, manifest)
+            else:
+                self.case_states[case.case_id]["manifest_checked"] = True
 
     def _make_manifest(
         self,
@@ -3086,6 +3141,7 @@ class MainWindow(QMainWindow):
         case = CASE_DEFINITIONS[case_id]
         state["manifest_path"] = manifest_path
         state["manifest"] = manifest
+        state["manifest_checked"] = True
         state["run_profile"] = normalize_run_profile(manifest.run_profile, fallback="full")
         state["run_id"] = manifest.run_id
         state["run_dir"] = manifest.run_dir or None
@@ -3172,22 +3228,53 @@ class MainWindow(QMainWindow):
                 return path
         return None
 
+    def _csv_xy_cache_key(self, csv_path: Path, x_column: str, y_column: str):
+        stat = csv_path.stat()
+        return (str(csv_path.resolve()), stat.st_mtime_ns, stat.st_size, x_column, y_column)
+
+    def _cached_xy_columns(self, csv_path: Path, x_column: str, y_column: str) -> tuple[list[float], list[float]]:
+        cache_key = self._csv_xy_cache_key(csv_path, x_column, y_column)
+        cached = self._csv_xy_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        x_values: list[float] = []
+        y_values: list[float] = []
+        rows = read_csv_table_cached(csv_path)
+        if not rows:
+            result = (x_values, y_values)
+            self._csv_xy_cache[cache_key] = result
+            return result
+
+        header = rows[0]
+        try:
+            x_index = header.index(x_column)
+            y_index = header.index(y_column)
+        except ValueError:
+            result = (x_values, y_values)
+            self._csv_xy_cache[cache_key] = result
+            return result
+
+        for row in rows[1:]:
+            if x_index >= len(row) or y_index >= len(row):
+                continue
+            try:
+                x_values.append(float(row[x_index]))
+                y_values.append(float(row[y_index]))
+            except (TypeError, ValueError):
+                continue
+        result = (x_values, y_values)
+        self._csv_xy_cache[cache_key] = result
+        if len(self._csv_xy_cache) > 64:
+            self._csv_xy_cache.pop(next(iter(self._csv_xy_cache)))
+        return result
+
     def _load_curve_csv(self, csv_path: Path, case) -> tuple[list[float], list[float]]:
         if len(case.curve_columns) != 2 or not csv_path.exists():
             return [], []
 
         x_column, y_column = case.curve_columns
-        x_values = []
-        y_values = []
-        with csv_path.open("r", encoding="utf-8", newline="") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                try:
-                    x_values.append(float(row[x_column]))
-                    y_values.append(float(row[y_column]))
-                except (KeyError, TypeError, ValueError):
-                    continue
-        return x_values, y_values
+        return self._cached_xy_columns(csv_path, x_column, y_column)
 
     def _load_curve_history(self, manifest: RunManifest, case) -> tuple[list[float], list[float]]:
         if not manifest.curve_csv_paths:
@@ -3231,17 +3318,7 @@ class MainWindow(QMainWindow):
     def _load_xy_from_csv(self, csv_path: Path, x_column: str, y_column: str) -> tuple[list[float], list[float]]:
         if not csv_path.exists():
             return [], []
-        x_values = []
-        y_values = []
-        with csv_path.open("r", encoding="utf-8", newline="") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                try:
-                    x_values.append(float(row[x_column]))
-                    y_values.append(float(row[y_column]))
-                except (KeyError, TypeError, ValueError):
-                    continue
-        return x_values, y_values
+        return self._cached_xy_columns(csv_path, x_column, y_column)
 
     def _comparison_curve_series(self, case_id: str):
         case = CASE_DEFINITIONS[case_id]
@@ -3268,9 +3345,7 @@ class MainWindow(QMainWindow):
             self.postprocess_table.setRowCount(0)
             self.postprocess_table.setColumnCount(0)
             return
-        with csv_path.open("r", encoding="utf-8", newline="") as handle:
-            reader = csv.reader(handle)
-            rows = list(reader)
+        rows = read_csv_table_cached(csv_path)
         if not rows:
             self.postprocess_table.setRowCount(0)
             self.postprocess_table.setColumnCount(0)
@@ -3383,6 +3458,7 @@ class MainWindow(QMainWindow):
         self._update_input_enabled_state()
 
     def _apply_case_state_to_ui(self):
+        self._ensure_manifest_loaded(self.current_case)
         state = self._current_state()
         case = self._current_case_def()
         if hasattr(self, "case_status_badge"):
@@ -3702,7 +3778,6 @@ class MainWindow(QMainWindow):
             state["von_mises_cache_run_id"] = manifest.run_id
             return expected_paths
 
-        import meshio
         import numpy as np
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
@@ -3721,7 +3796,7 @@ class MainWindow(QMainWindow):
 
         snapshots: list[dict[str, object]] = []
         for vtk_path, image_path in zip(vtk_paths, expected_paths):
-            mesh = meshio.read(vtk_path)
+            mesh = read_mesh_cached(vtk_path)
             points, cells, tri = _triangulation(mesh)
             damage = _scalar_field(mesh, "d")
             displacement = _vector_field(mesh, "uh", 2)
@@ -3803,6 +3878,41 @@ class MainWindow(QMainWindow):
         latest_vtk = self._current_state()["latest_vtk_path"]
         show_vtk = bool(latest_vtk) and not is_visual_export_view(view_name)
         self.vtk_label.setVisible(show_vtk)
+
+    def _schedule_live_curve_refresh(self):
+        if self.active_case_id != self.current_case:
+            return
+        if not self._curve_refresh_timer.isActive():
+            self._curve_refresh_timer.start(LIVE_CURVE_REFRESH_INTERVAL_MS)
+
+    def _flush_live_curve_refresh(self):
+        if self.active_case_id not in (None, self.current_case):
+            return
+        state = self._current_state()
+        self.curve_canvas.update_curve(state["curve_x"], state["curve_y"])
+
+    def _schedule_postprocess_refresh(self, prefer_latest: bool, animate: bool):
+        self._pending_postprocess_refresh = {"prefer_latest": prefer_latest, "animate": animate}
+        self._postprocess_refresh_timer.start(POSTPROCESS_REFRESH_DEBOUNCE_MS)
+
+    def _flush_postprocess_refresh(self):
+        pending = self._pending_postprocess_refresh
+        self._pending_postprocess_refresh = None
+        if pending is None:
+            return
+        self._execute_postprocess_refresh(
+            prefer_latest=bool(pending["prefer_latest"]),
+            animate=bool(pending["animate"]),
+        )
+
+    def _execute_postprocess_refresh(self, prefer_latest: bool, animate: bool):
+        self._refresh_history_combo(prefer_latest=prefer_latest)
+        view_name = self._current_postprocess_view()
+        selected_path = self.history_combo.currentData()
+        apply_content = lambda: self._render_postprocess_view(view_name, selected_path)
+        apply_content()
+        if animate and self._animations_enabled():
+            self._animate_widget_opacity(self.postprocess_detail_label, start=0.36, end=1.0, duration=ANIMATION_MEDIUM_MS)
 
     def _refresh_history_combo(self, prefer_latest: bool):
         view_name = self._current_postprocess_view()
@@ -3925,14 +4035,14 @@ class MainWindow(QMainWindow):
     def on_postprocess_view_changed(self, _view_name: str):
         if self._syncing_postprocess_view:
             return
-        self.refresh_postprocess_view(prefer_latest=False, animate=True)
+        self.refresh_postprocess_view(prefer_latest=False, animate=True, debounce=True)
 
     def on_history_changed(self, _index: int):
         if self._syncing_history:
             return
         view_name = self._current_postprocess_view()
         self._current_state()["history_selection"][view_name] = self.history_combo.currentData()
-        self.refresh_postprocess_view(prefer_latest=False, animate=True)
+        self.refresh_postprocess_view(prefer_latest=False, animate=True, debounce=True)
 
     def on_postprocess_timeline_changed(self, frame_index: int):
         if self._syncing_postprocess_timeline:
@@ -3984,8 +4094,8 @@ class MainWindow(QMainWindow):
         state["curve_y"].append(y_value)
         state["compute_status"] = f"Step {step} | x={x_value:.4e} | y={y_value:.4e} | marker={marker_value:.4f}"
         if self.active_case_id == self.current_case:
-            self.curve_canvas.update_curve(state["curve_x"], state["curve_y"])
             self.compute_status_label.setText(state["compute_status"])
+            self._schedule_live_curve_refresh()
 
     def update_snapshot(self, image_path: str):
         path = Path(image_path)
@@ -4003,7 +4113,11 @@ class MainWindow(QMainWindow):
             if self.active_case_id == self.current_case:
                 self._refresh_compute_live_previews()
         if self.active_case_id == self.current_case:
-            self.refresh_postprocess_view(prefer_latest=True, animate=self.tabs.currentIndex() == self.post_tab_index)
+            self.refresh_postprocess_view(
+                prefer_latest=True,
+                animate=self.tabs.currentIndex() == self.post_tab_index,
+                debounce=True,
+            )
 
     def update_vtk_path(self, vtk_path: str):
         state = self._active_state()
@@ -4019,7 +4133,11 @@ class MainWindow(QMainWindow):
         state["latest_displacement_path"] = path
         state["history_selection"]["Displacement"] = str(path)
         if self.active_case_id == self.current_case:
-            self.refresh_postprocess_view(prefer_latest=True, animate=self.tabs.currentIndex() == self.post_tab_index)
+            self.refresh_postprocess_view(
+                prefer_latest=True,
+                animate=self.tabs.currentIndex() == self.post_tab_index,
+                debounce=True,
+            )
 
     def update_von_mises_path(self, image_path: str):
         path = Path(image_path)
@@ -4030,7 +4148,11 @@ class MainWindow(QMainWindow):
         state["history_selection"]["Von Mises"] = str(path)
         if self.active_case_id == self.current_case:
             self._refresh_compute_live_previews()
-            self.refresh_postprocess_view(prefer_latest=True, animate=self.tabs.currentIndex() == self.post_tab_index)
+            self.refresh_postprocess_view(
+                prefer_latest=True,
+                animate=self.tabs.currentIndex() == self.post_tab_index,
+                debounce=True,
+            )
 
     def collect_params(self):
         params = {}
@@ -4231,14 +4353,14 @@ class MainWindow(QMainWindow):
         self.worker.stop()
         self.stop_button.setEnabled(False)
 
-    def refresh_postprocess_view(self, prefer_latest: bool, animate: bool = True):
-        self._refresh_history_combo(prefer_latest=prefer_latest)
-        view_name = self._current_postprocess_view()
-        selected_path = self.history_combo.currentData()
-        apply_content = lambda: self._render_postprocess_view(view_name, selected_path)
-        apply_content()
-        if animate and self._animations_enabled():
-            self._animate_widget_opacity(self.postprocess_detail_label, start=0.36, end=1.0, duration=ANIMATION_MEDIUM_MS)
+    def refresh_postprocess_view(self, prefer_latest: bool, animate: bool = True, debounce: bool | None = None):
+        use_debounce = animate if debounce is None else debounce
+        if use_debounce:
+            self._schedule_postprocess_refresh(prefer_latest=prefer_latest, animate=animate)
+            return
+        self._postprocess_refresh_timer.stop()
+        self._pending_postprocess_refresh = None
+        self._execute_postprocess_refresh(prefer_latest=prefer_latest, animate=animate)
 
     def export_results(self):
         state = self._current_state()

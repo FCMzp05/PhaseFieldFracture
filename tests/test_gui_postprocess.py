@@ -152,6 +152,24 @@ class GuiPostprocessTests(unittest.TestCase):
         self._select_case("sent_tension")
         self.assertEqual(self._view_names(), ["Mesh", "Damage", "Displacement", "Von Mises", "Force-Displacement Curve", "Results Summary"])
 
+    def test_manifest_is_loaded_lazily_per_case(self):
+        self._write_postprocess_manifest("sent_tension", vtk_frames=1)
+        self._write_postprocess_manifest("sens_shear", vtk_frames=1)
+
+        self._open_window()
+
+        sent_state = self.window.case_states["sent_tension"]
+        sens_state = self.window.case_states["sens_shear"]
+        self.assertIsNotNone(sent_state["manifest"])
+        self.assertTrue(sent_state["manifest_checked"])
+        self.assertIsNone(sens_state["manifest"])
+        self.assertFalse(sens_state["manifest_checked"])
+
+        self._select_case("sens_shear")
+        sens_state = self.window.case_states["sens_shear"]
+        self.assertIsNotNone(sens_state["manifest"])
+        self.assertTrue(sens_state["manifest_checked"])
+
     def test_julia_env_resolution_follows_active_conda_env(self):
         fake_prefix = self.temp_path / "envs" / "gui_envs"
         expected_project = fake_prefix / "share" / "julia" / "environments" / "gui_envs"
@@ -255,6 +273,18 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertEqual(self.window.history_combo.itemData(0), str(curve_csv))
         self.assertIn(str(curve_csv), self.window.postprocess_detail_label.text())
 
+    def test_curve_csv_columns_are_cached_in_gui(self):
+        self._open_window()
+        csv_path = self.temp_path / "curve_cache.csv"
+        csv_path.write_text("u_mm,F_kN\n0.0,0.0\n0.1,2.0\n", encoding="utf-8")
+
+        with mock.patch.object(gui_main, "read_csv_table_cached", wraps=gui_main.read_csv_table_cached) as cache_mock:
+            first = self.window._cached_xy_columns(csv_path, "u_mm", "F_kN")
+            second = self.window._cached_xy_columns(csv_path, "u_mm", "F_kN")
+
+        self.assertEqual(first, second)
+        self.assertEqual(cache_mock.call_count, 1)
+
     def test_mesh_preview_widget_supports_zoom_and_vertical_scroll(self):
         self._open_window()
         self.window.resize(1280, 900)
@@ -339,6 +369,30 @@ class GuiPostprocessTests(unittest.TestCase):
         viewer.zoom_in()
         self.app.processEvents()
         self.assertIsNotNone(viewer.image_label.pixmap())
+
+    def test_mesh_preview_widget_reuses_scaled_pixmap_cache(self):
+        self._open_window()
+        self.window.resize(1280, 900)
+        self.window.show()
+        self.window.tabs.setCurrentIndex(self.window.mesh_tab_index)
+        self._flush_events()
+
+        image_path = self.temp_path / "mesh_preview_cache.png"
+        image = QImage(640, 960, QImage.Format_RGB32)
+        image.fill(QColor("#bcd0e6"))
+        self.assertTrue(image.save(str(image_path)))
+
+        viewer = self.window.mesh_preview_label
+        self.window._set_label_image(viewer, image_path, "Mesh preview will appear here.", animate=False)
+        viewer.show_actual_size()
+        self._flush_events()
+
+        cache_size = len(viewer._scaled_pixmap_cache)
+        viewer._render_pixmap()
+        self._flush_events()
+
+        self.assertGreater(cache_size, 0)
+        self.assertEqual(len(viewer._scaled_pixmap_cache), cache_size)
 
     def test_postprocess_stack_does_not_use_opacity_animation_on_view_change(self):
         case_id = "sent_tension"
@@ -539,6 +593,11 @@ class GuiPostprocessTests(unittest.TestCase):
         drop_path = native_dir / "result_drop_step0002.vtu"
         final_path = native_dir / "result_final_step0003.vtu"
         native_dir.mkdir(parents=True, exist_ok=True)
+        mesh_path.write_text("mesh", encoding="utf-8")
+        curve_path.write_text("step,u_mm,F_kN\n1,0.0,0.0\n", encoding="utf-8")
+        onset_path.write_text("vtk", encoding="utf-8")
+        drop_path.write_text("vtk", encoding="utf-8")
+        final_path.write_text("vtk", encoding="utf-8")
 
         captured = {}
 
@@ -794,6 +853,38 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertEqual(self.window.case_states[case_id]["visual_export_paths"], {"field_panel": str(export_path)})
         latest_manifest = load_manifest(latest_path)
         self.assertEqual(latest_manifest.exported_visual_paths, {"field_panel": str(export_path)})
+
+    def test_live_curve_refresh_is_throttled(self):
+        self._open_window()
+        self.window.current_case = "sent_tension"
+        self.window.active_case_id = "sent_tension"
+        self.window.active_run_mode = "compute"
+
+        with mock.patch.object(self.window.curve_canvas, "update_curve") as update_curve_mock:
+            self.window.update_step(0.1, 1.0, 0.2, 1)
+            self.window.update_step(0.2, 1.1, 0.3, 2)
+            self.window.update_step(0.3, 1.2, 0.4, 3)
+
+            self.assertEqual(update_curve_mock.call_count, 0)
+            QTest.qWait(gui_main.LIVE_CURVE_REFRESH_INTERVAL_MS + 40)
+            self._flush_events()
+
+        self.assertEqual(update_curve_mock.call_count, 1)
+
+    def test_postprocess_refresh_is_debounced(self):
+        self._write_postprocess_manifest("sent_tension")
+        self._open_window()
+        self._select_case("sent_tension")
+
+        with mock.patch.object(self.window, "_render_postprocess_view") as render_mock:
+            self.window.refresh_postprocess_view(prefer_latest=True, animate=False, debounce=True)
+            self.window.refresh_postprocess_view(prefer_latest=True, animate=False, debounce=True)
+            self.window.refresh_postprocess_view(prefer_latest=True, animate=False, debounce=True)
+
+            self.assertEqual(render_mock.call_count, 0)
+            self._flush_events()
+
+        self.assertEqual(render_mock.call_count, 1)
 
 
 if __name__ == "__main__":

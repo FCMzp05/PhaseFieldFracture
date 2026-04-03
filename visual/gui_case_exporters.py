@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import re
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from pathlib import Path
 
 import matplotlib as mpl
@@ -35,6 +35,32 @@ MESH_FACE_COLOR = "#B8D4E8"
 MESH_EDGE_COLOR = "#5A8FAA"
 PANEL_BORDER_COLOR = "black"
 CURVE_COLORS = ("#1f4f82", "#b4473c", "#2d7d6e", "#ad7a1f", "#7a5c97")
+FILE_CACHE_LIMIT = 64
+
+_MESH_CACHE: OrderedDict[tuple[str, int, int], meshio.Mesh] = OrderedDict()
+_CSV_DICT_ROWS_CACHE: OrderedDict[tuple[str, int, int], list[dict[str, str]]] = OrderedDict()
+_CSV_TABLE_CACHE: OrderedDict[tuple[str, int, int], list[list[str]]] = OrderedDict()
+
+
+def _file_cache_key(path: Path) -> tuple[str, int, int]:
+    stat = path.stat()
+    return str(path.resolve()), stat.st_mtime_ns, stat.st_size
+
+
+def _cache_lookup(cache: OrderedDict, key):
+    value = cache.get(key)
+    if value is None:
+        return None
+    cache.move_to_end(key)
+    return value
+
+
+def _cache_store(cache: OrderedDict, key, value):
+    cache[key] = value
+    cache.move_to_end(key)
+    while len(cache) > FILE_CACHE_LIMIT:
+        cache.popitem(last=False)
+    return value
 
 
 def _load_runtime_params(runtime_params_path: Path | None) -> dict[str, object]:
@@ -90,8 +116,32 @@ def _select_evenly_spaced(paths: list[Path], count: int) -> list[Path]:
 
 
 def _read_csv_rows(csv_path: Path) -> list[dict[str, str]]:
+    cache_key = _file_cache_key(csv_path)
+    cached_rows = _cache_lookup(_CSV_DICT_ROWS_CACHE, cache_key)
+    if cached_rows is not None:
+        return cached_rows
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
-        return list(csv.DictReader(handle))
+        rows = list(csv.DictReader(handle))
+    return _cache_store(_CSV_DICT_ROWS_CACHE, cache_key, rows)
+
+
+def read_csv_table_cached(csv_path: Path) -> list[list[str]]:
+    cache_key = _file_cache_key(csv_path)
+    cached_rows = _cache_lookup(_CSV_TABLE_CACHE, cache_key)
+    if cached_rows is not None:
+        return cached_rows
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
+    return _cache_store(_CSV_TABLE_CACHE, cache_key, rows)
+
+
+def read_mesh_cached(mesh_path: Path) -> meshio.Mesh:
+    cache_key = _file_cache_key(mesh_path)
+    cached_mesh = _cache_lookup(_MESH_CACHE, cache_key)
+    if cached_mesh is not None:
+        return cached_mesh
+    mesh = meshio.read(mesh_path)
+    return _cache_store(_MESH_CACHE, cache_key, mesh)
 
 
 def _triangle_block(mesh: meshio.Mesh):
@@ -320,7 +370,7 @@ def _merged_boundary_loops(coords: np.ndarray, cells: np.ndarray, tol: float = 1
 
 
 def _draw_mesh_overview(ax, mesh_path: Path, *, mesh_linewidth: float = 0.25):
-    mesh = meshio.read(mesh_path)
+    mesh = read_mesh_cached(mesh_path)
     coords, triangles, _ = _triangulation(mesh)
 
     ax.add_collection(mc.PolyCollection(coords[triangles], facecolor=MESH_FACE_COLOR, edgecolor="none", zorder=1))
@@ -782,7 +832,7 @@ def export_sent_panels(
     snaps: list[dict[str, object]] = []
     marker_steps: list[int | None] = []
     for path in snap_paths:
-        mesh = meshio.read(path)
+        mesh = read_mesh_cached(path)
         points, cells, tri = _triangulation(mesh)
         damage = _scalar_field(mesh, "d")
         displacement = _vector_field(mesh, "uh", 2)
@@ -853,7 +903,7 @@ def export_sens_panels(
     snaps: list[dict[str, object]] = []
     marker_steps: list[int | None] = []
     for path in snap_paths:
-        mesh = meshio.read(path)
+        mesh = read_mesh_cached(path)
         points, cells, tri = _triangulation(mesh)
         damage = _scalar_field(mesh, "d")
         displacement = _vector_field(mesh, "uh", 2)
@@ -914,7 +964,7 @@ def export_tpb_panels(
     if not cycle_paths:
         raise FileNotFoundError(f"Missing TPB cycle VTK files in {case_dir}")
 
-    sample_mesh = meshio.read(cycle_paths[0])
+    sample_mesh = read_mesh_cached(cycle_paths[0])
     sample_points = np.asarray(sample_mesh.points[:, :2], dtype=float)
     xmin, ymin = sample_points.min(axis=0)
     xmax, ymax = sample_points.max(axis=0)
@@ -925,7 +975,7 @@ def export_tpb_panels(
 
     snaps: list[dict[str, object]] = []
     for path in _select_evenly_spaced(cycle_paths, 4):
-        mesh = meshio.read(path)
+        mesh = read_mesh_cached(path)
         _, _, tri = _triangulation(mesh, xlim=crop_x, ylim=crop_y)
         s_field = _scalar_field(mesh, "s")
         fdeg = _scalar_field(mesh, "Fdeg")
@@ -1052,7 +1102,7 @@ def export_offset_double_notch_panels(
         snaps: list[dict[str, object]] = []
         current_titles: list[str] = []
         for path in snap_paths:
-            mesh = meshio.read(path)
+            mesh = read_mesh_cached(path)
             _, _, tri = _triangulation(mesh)
             damage = _scalar_field(mesh, "d")
             fatigue = _scalar_field(mesh, "falpha")
@@ -1147,7 +1197,7 @@ def export_fang2019_panels(
         snaps: list[dict[str, object]] = []
         titles: list[str] = []
         for path in snap_paths:
-            mesh = meshio.read(path)
+            mesh = read_mesh_cached(path)
             _, _, tri = _triangulation(mesh, xlim=crop_x, ylim=crop_y)
             damage = _scalar_field(mesh, "d")
             epspeq = _scalar_field(mesh, "epspeq")
@@ -1261,7 +1311,7 @@ def export_double_notched_panels(
         snaps: list[dict[str, object]] = []
         titles: list[str] = []
         for path in snap_paths:
-            mesh = meshio.read(path)
+            mesh = read_mesh_cached(path)
             _, _, tri = _triangulation(mesh)
             damage = _scalar_field(mesh, "d")
             epspeq = _scalar_field(mesh, "epspeq")
@@ -1406,9 +1456,9 @@ def export_sent_fatigue_panels(
         cycle = _extract_int_from_name(milestone_path, "N") or 0
         crack_extension = (_extract_int_from_name(milestone_path, "a") or 0) / 1000.0
         regular_path = _nearest_regular_path(regular_paths, cycle)
-        milestone_mesh = meshio.read(milestone_path)
+        milestone_mesh = read_mesh_cached(milestone_path)
         milestone_points, _, tri = _triangulation(milestone_mesh, xlim=crop_x, ylim=crop_y)
-        sigma_mesh = meshio.read(regular_path) if regular_path is not None else milestone_mesh
+        sigma_mesh = read_mesh_cached(regular_path) if regular_path is not None else milestone_mesh
         sigma_points, _, _ = _triangulation(sigma_mesh)
         sigmaeq = _align_point_field_by_coordinates(sigma_points, _scalar_field(sigma_mesh, "sigmaeq"), milestone_points)
         alpha_bar = _scalar_field(milestone_mesh, "alpha_bar")
@@ -1496,7 +1546,7 @@ def export_ct_fatigue_panels(
     cycles = np.array([int(float(row["cycle"])) for row in cycle_rows if row.get("cycle")], dtype=int) if cycle_rows else np.array([], dtype=int)
     crack_values = np.array([float(row["delta_a_mm"]) for row in cycle_rows if row.get("delta_a_mm")], dtype=float) if cycle_rows else np.array([], dtype=float)
 
-    sample_mesh = meshio.read(selected_milestones[0])
+    sample_mesh = read_mesh_cached(selected_milestones[0])
     sample_points = np.asarray(sample_mesh.points[:, :2], dtype=float)
     y_mid = 0.5 * (float(np.min(sample_points[:, 1])) + float(np.max(sample_points[:, 1])))
     xlim = (float(np.min(sample_points[:, 0])), float(np.max(sample_points[:, 0])))
@@ -1507,7 +1557,7 @@ def export_ct_fatigue_panels(
 
     snaps: list[dict[str, object]] = []
     for path in selected_milestones:
-        mesh = meshio.read(path)
+        mesh = read_mesh_cached(path)
         _, _, tri = _triangulation(mesh, triangle_filter=upper_half_filter)
         cycle = _extract_int_from_name(path, "cycle") or 0
         crack_extension, rate = _central_rate(cycles, crack_values, cycle)

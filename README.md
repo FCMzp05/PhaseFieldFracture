@@ -24,7 +24,9 @@ GUI 工作流固定为 `Mesh -> Compute -> Post-process`。参数面板按 `Geom
 当前进展补充：`Compute` 右侧第二张实时预览已由位移云图改为 `Von Mises` 云图；`Post-process` 的 `History` 下拉已移除，序列浏览改为仅对 `Damage / Displacement / Von Mises` 生效的顶栏加粗可拖拽时间轴，`Mesh / Visual Export` 不再显示时间轴；`View` 中曲线项已按算例语义显示为 `Force-Displacement Curve` 或 `Crack Growth Curve`，`Visual Export` 已改名为更接近结果汇总含义的 `Results Summary`；协议类 `Visual Export` 的 `field panel` 已扩为横向 `1x3`，内容为 `damage / displacement magnitude / von Mises stress`。  
 当前进展补充：协议类 `von Mises` 预览与 `Post-process` 缓存已统一复用同一套节点合并与坐标对齐逻辑，不再各自维护一份重排实现；GUI 启动 Julia 时已显式传入 `--threads=auto`，并默认按可用 CPU 数设置 `OPENBLAS_NUM_THREADS`，协议求解启动日志会输出 `compute_threads / blas_threads / cpu_threads`。  
 当前进展补充：协议类实时预览已改为单次临时 `VTU` 导出后批量渲染 `damage / displacement / von Mises`，不再为三个字段重复写临时文件并重复启动 Python；`Visual Export` 已改为计算结束后后台线程生成，主线程不再同步等待导出完成。  
-下一步：继续观察协议类实时预览吞吐与 `Visual Export` 后台生成的稳定性，并评估 `Von Mises` 历史图是否也需要进一步改成后台懒生成。
+当前进展补充：实时曲线已改为定时节流刷新，避免协议类求解每一步都触发一次完整 matplotlib 重画；`Post-process` 连续刷新请求已改为下一轮事件循环内合并执行，减少连续图片到达时的重复重渲染。  
+当前进展补充：图片预览组件已加入缩放结果缓存，减少同尺寸反复 `QPixmap.scaled()`；GUI 与 `visual exporter` 已共用 CSV/VTU 读取缓存；manifest 已改为按 case 懒加载，不再在启动时一次性读取全部算例结果。  
+下一步：继续观察 `Von Mises` 历史图首次打开时的卡顿，并评估是否要把该历史缓存也进一步改成后台懒生成，同时观察长时间运行后的读缓存命中与内存占用。
 
 ## 环境
 

@@ -129,7 +129,7 @@ class GuiScanPostprocessTests(unittest.TestCase):
         self._select_case(case_id)
 
         view_names = [self.window.postprocess_view_combo.itemText(index) for index in range(self.window.postprocess_view_combo.count())]
-        self.assertEqual(view_names, ["Mesh", "Damage", "Summary Table", "Comparison Curve", "Visual Export"])
+        self.assertEqual(view_names, ["Mesh", "Damage", "Summary Table", "Comparison Curve", "Results Summary"])
 
         self.window.postprocess_view_combo.setCurrentText("Summary Table")
         self.app.processEvents()
