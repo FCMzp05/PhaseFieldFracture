@@ -126,6 +126,17 @@ end
 emit_info(msg::AbstractString) = emit_line("INFO " * msg)
 emit_error(msg::AbstractString) = emit_line("ERROR " * msg)
 
+function configure_runtime_parallelism()
+    target_blas_threads = max(1, min(Threads.nthreads(), Sys.CPU_THREADS))
+    BLAS.set_num_threads(target_blas_threads)
+    emit_info(@sprintf(
+        "Julia runtime: compute_threads=%d blas_threads=%d cpu_threads=%d",
+        Threads.nthreads(),
+        BLAS.get_num_threads(),
+        Sys.CPU_THREADS,
+    ))
+end
+
 function parse_flat_json(path::String)
     text = read(path, String)
     pairs = Dict{String,String}()
@@ -1013,6 +1024,7 @@ end
 function main()
     length(ARGS) == 1 || error("Usage: julia gui/gui_solver.jl gui/params_default.json")
     params_path = abspath(ARGS[1])
+    configure_runtime_parallelism()
     config = parse_params(params_path)
     global OUTPUT_DIR = abspath(config.output_dir)
     mkpath(OUTPUT_DIR)

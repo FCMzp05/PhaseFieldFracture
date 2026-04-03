@@ -66,6 +66,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from visual import export_visuals
+from visual.gui_case_exporters import _compute_protocol_von_mises, _scalar_field, _triangulation, _vector_field
 
 if __package__ in (None, ""):
     from case_registry import (
@@ -135,6 +136,7 @@ ANIMATION_MEDIUM_MS = 220
 ANIMATION_SLOW_MS = 320
 ANIMATION_TOAST_STAY_MS = 2200
 JULIA_COMMAND = "julia"
+DEFAULT_JULIA_THREADS = "auto"
 SUBTITLE_FONT_SIZE = 18
 TOP_LEVEL_RESULT_PATTERNS = (
     "mesh_*.msh",
@@ -350,6 +352,16 @@ def resolved_julia_depot() -> str | None:
     return str(prefix / "share" / "julia")
 
 
+def available_cpu_count() -> int:
+    sched_getaffinity = getattr(os, "sched_getaffinity", None)
+    if callable(sched_getaffinity):
+        try:
+            return max(1, len(sched_getaffinity(0)))
+        except OSError:
+            pass
+    return max(1, os.cpu_count() or 1)
+
+
 def julia_env_prefix() -> str:
     exports: list[str] = []
     project = resolved_julia_project()
@@ -371,6 +383,8 @@ def julia_subprocess_env():
         env["JULIA_PROJECT"] = project
     if depot:
         env["JULIA_DEPOT_PATH"] = depot
+    env.setdefault("JULIA_NUM_THREADS", DEFAULT_JULIA_THREADS)
+    env.setdefault("OPENBLAS_NUM_THREADS", str(available_cpu_count()))
     env["GKS_WSTYPE"] = "100"
     for key in (
         "DISPLAY",
@@ -796,7 +810,7 @@ class ProtocolJuliaWorker(QThread):
 
     def run(self):
         solver_path = GUI_DIR / "gui_solver.jl"
-        cmd = f'{julia_env_prefix()}{JULIA_COMMAND} "{solver_path}" "{self.params_path}"'
+        cmd = f'{julia_env_prefix()}{JULIA_COMMAND} --threads={DEFAULT_JULIA_THREADS} "{solver_path}" "{self.params_path}"'
         stage_label = "mesh" if self.run_mode == "mesh" else "compute"
         self.status_update.emit(f"Launching Julia {self.protocol_case_name} {stage_label} stage...")
         self._process = subprocess.Popen(
@@ -906,7 +920,7 @@ class BatchJuliaWorker(QThread):
             self._process.terminate()
 
     def run(self):
-        cmd = f'{julia_env_prefix()}{JULIA_COMMAND} "{self.script_path}" "{self.params_path}"'
+        cmd = f'{julia_env_prefix()}{JULIA_COMMAND} --threads={DEFAULT_JULIA_THREADS} "{self.script_path}" "{self.params_path}"'
         stage_label = "mesh" if self.run_mode == "mesh" else "compute"
         self.status_update.emit(f"Launching benchmark script: {self.script_path.name} [{stage_label}]")
         self._process = subprocess.Popen(
@@ -3594,89 +3608,12 @@ class MainWindow(QMainWindow):
 
         import meshio
         import numpy as np
-        import matplotlib.tri as mtri
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
 
         params = load_runtime_param_map(Path(manifest.runtime_params_path) if manifest.runtime_params_path else None)
         young_modulus = float(params.get("E", 210950.0))
         poisson_ratio = float(params.get("nu", 0.3))
-
-        def triangle_block(mesh):
-            for block_index, cell_block in enumerate(mesh.cells):
-                if cell_block.type in {"triangle", "triangle6"}:
-                    cells = np.asarray(cell_block.data, dtype=int)
-                    if cells.ndim == 2 and cells.shape[1] >= 3:
-                        return block_index, cells[:, :3]
-            raise KeyError("No triangle cells found in mesh.")
-
-        def merged_points_and_cells(coords: np.ndarray, cells: np.ndarray, tol: float = 1.0e-10):
-            quantized = np.round(coords / tol).astype(np.int64)
-            representative_by_key: dict[tuple[int, int], int] = {}
-            remap = np.empty(len(coords), dtype=int)
-            for index, key in enumerate(quantized):
-                tuple_key = (int(key[0]), int(key[1]))
-                representative = representative_by_key.setdefault(tuple_key, index)
-                remap[index] = representative
-            unique_ids, inverse = np.unique(remap, return_inverse=True)
-            merged_coords = coords[unique_ids]
-            merged_cells = inverse[cells]
-            merged_cells = np.asarray(
-                [tri for tri in merged_cells if len({int(tri[0]), int(tri[1]), int(tri[2])}) == 3],
-                dtype=int,
-            )
-            return merged_coords, merged_cells, inverse
-
-        def merge_point_values(values: np.ndarray, inverse: np.ndarray, merged_size: int):
-            values_2d = values if values.ndim == 2 else values[:, None]
-            merged_values = np.zeros((merged_size, values_2d.shape[1]), dtype=float)
-            counts = np.zeros(merged_size, dtype=float)
-            np.add.at(merged_values, inverse, values_2d)
-            np.add.at(counts, inverse, 1.0)
-            merged_values /= np.maximum(counts[:, None], 1.0)
-            return merged_values
-
-        def field_to_points(mesh, name: str):
-            if name in mesh.point_data:
-                values = np.asarray(mesh.point_data[name], dtype=float)
-                raw_values = values if values.ndim == 2 else values[:, None]
-            else:
-                block_index, cells = triangle_block(mesh)
-                if name not in mesh.cell_data or block_index >= len(mesh.cell_data[name]):
-                    raise KeyError(f"Field '{name}' not found in mesh.")
-                values = np.asarray(mesh.cell_data[name][block_index], dtype=float)
-                values_2d = values if values.ndim == 2 else values[:, None]
-                raw_values = np.zeros((len(mesh.points), values_2d.shape[1]), dtype=float)
-                weights = np.zeros(len(mesh.points), dtype=float)
-                for local_node in range(3):
-                    np.add.at(raw_values, cells[:, local_node], values_2d)
-                    np.add.at(weights, cells[:, local_node], 1.0)
-                raw_values /= np.maximum(weights[:, None], 1.0)
-            coords = np.asarray(mesh.points[:, :2], dtype=float)
-            _, cells = triangle_block(mesh)
-            merged_coords, _, inverse = merged_points_and_cells(coords, cells)
-            return merge_point_values(raw_values, inverse, len(merged_coords))
-
-        def scalar_field(mesh, name: str):
-            values = field_to_points(mesh, name)
-            if values.shape[1] != 1:
-                raise ValueError(f"Field '{name}' is not scalar.")
-            return values[:, 0]
-
-        def vector_field(mesh, name: str, min_cols: int = 2):
-            values = field_to_points(mesh, name)
-            if values.shape[1] < min_cols:
-                raise ValueError(f"Field '{name}' does not have {min_cols} components.")
-            return values[:, :min_cols]
-
-        def triangulation(mesh):
-            raw_points = np.asarray(mesh.points[:, :2], dtype=float)
-            _, raw_cells = triangle_block(mesh)
-            points, cells, _ = merged_points_and_cells(raw_points, raw_cells)
-            if len(cells) == 0:
-                raise ValueError("No triangles remain after merging.")
-            tri = mtri.Triangulation(points[:, 0], points[:, 1], triangles=cells)
-            return points, cells, tri
 
         def rounded_percentile_max(values, percentile: float, *, floor: float = 0.0, round_to: float | None = None):
             array = np.asarray(values, dtype=float).ravel()
@@ -3686,54 +3623,13 @@ class MainWindow(QMainWindow):
                 base_value = float(np.ceil(base_value / round_to) * round_to)
             return max(base_value, 1.0e-6)
 
-        def compute_protocol_von_mises(points, cells, displacement, damage, young_modulus, poisson_ratio):
-            lam = young_modulus * poisson_ratio / ((1.0 + poisson_ratio) * (1.0 - 2.0 * poisson_ratio))
-            shear = young_modulus / (2.0 * (1.0 + poisson_ratio))
-            p1 = points[cells[:, 0]]
-            p2 = points[cells[:, 1]]
-            p3 = points[cells[:, 2]]
-            u1 = displacement[cells[:, 0]]
-            u2 = displacement[cells[:, 1]]
-            u3 = displacement[cells[:, 2]]
-            twice_area = (p2[:, 0] - p1[:, 0]) * (p3[:, 1] - p1[:, 1]) - (p3[:, 0] - p1[:, 0]) * (p2[:, 1] - p1[:, 1])
-            twice_area = np.where(np.abs(twice_area) < 1.0e-14, np.sign(twice_area) * 1.0e-14 + 1.0e-14, twice_area)
-            d_n1_dx = (p2[:, 1] - p3[:, 1]) / twice_area
-            d_n1_dy = (p3[:, 0] - p2[:, 0]) / twice_area
-            d_n2_dx = (p3[:, 1] - p1[:, 1]) / twice_area
-            d_n2_dy = (p1[:, 0] - p3[:, 0]) / twice_area
-            d_n3_dx = (p1[:, 1] - p2[:, 1]) / twice_area
-            d_n3_dy = (p2[:, 0] - p1[:, 0]) / twice_area
-            exx = u1[:, 0] * d_n1_dx + u2[:, 0] * d_n2_dx + u3[:, 0] * d_n3_dx
-            eyy = u1[:, 1] * d_n1_dy + u2[:, 1] * d_n2_dy + u3[:, 1] * d_n3_dy
-            exy = 0.5 * (
-                u1[:, 0] * d_n1_dy + u2[:, 0] * d_n2_dy + u3[:, 0] * d_n3_dy
-                + u1[:, 1] * d_n1_dx + u2[:, 1] * d_n2_dx + u3[:, 1] * d_n3_dx
-            )
-            trace = exx + eyy
-            s_xx = lam * trace + 2.0 * shear * exx
-            s_yy = lam * trace + 2.0 * shear * eyy
-            s_zz = lam * trace
-            s_xy = 2.0 * shear * exy
-            sigma_vm = np.sqrt(
-                0.5 * ((s_xx - s_yy) ** 2 + (s_yy - s_zz) ** 2 + (s_zz - s_xx) ** 2) + 3.0 * s_xy**2
-            )
-            damage_cell = damage[cells].mean(axis=1)
-            degraded_sigma = np.clip((1.0 - damage_cell) ** 2, 0.0, 1.0) * sigma_vm
-            area = 0.5 * np.abs(twice_area)
-            weighted = np.zeros(len(points), dtype=float)
-            weights = np.zeros(len(points), dtype=float)
-            for local_node in range(3):
-                np.add.at(weighted, cells[:, local_node], degraded_sigma * area)
-                np.add.at(weights, cells[:, local_node], area)
-            return weighted / np.maximum(weights, 1.0e-30)
-
         snapshots: list[dict[str, object]] = []
         for vtk_path, image_path in zip(vtk_paths, expected_paths):
             mesh = meshio.read(vtk_path)
-            points, cells, tri = triangulation(mesh)
-            damage = scalar_field(mesh, "d")
-            displacement = vector_field(mesh, "uh", 2)
-            sigma_vm = compute_protocol_von_mises(points, cells, displacement, damage, young_modulus, poisson_ratio)
+            points, cells, tri = _triangulation(mesh)
+            damage = _scalar_field(mesh, "d")
+            displacement = _vector_field(mesh, "uh", 2)
+            sigma_vm = _compute_protocol_von_mises(points, cells, displacement, damage, young_modulus, poisson_ratio)
             snapshots.append({"tri": tri, "sigma_vm": sigma_vm, "image_path": image_path})
 
         stress_max = rounded_percentile_max(

@@ -167,7 +167,7 @@ def _align_point_field_by_coordinates(
     return aligned
 
 
-def _field_to_points(mesh: meshio.Mesh, name: str, *, merge_duplicates: bool = True) -> np.ndarray:
+def _merged_point_field(mesh: meshio.Mesh, name: str) -> tuple[np.ndarray, np.ndarray]:
     if name in mesh.point_data:
         values = np.asarray(mesh.point_data[name], dtype=float)
         if values.ndim == 1:
@@ -189,13 +189,34 @@ def _field_to_points(mesh: meshio.Mesh, name: str, *, merge_duplicates: bool = T
             np.add.at(weights, cells[:, local_node], 1.0)
         raw_values /= np.maximum(weights[:, None], 1.0)
 
-    if not merge_duplicates:
-        return raw_values
-
     coords = np.asarray(mesh.points[:, :2], dtype=float)
     cells = _triangle_cells(mesh)
     merged_coords, _, inverse = _merged_points_and_cells(coords, cells)
-    return _merge_point_values(raw_values, inverse, len(merged_coords))
+    merged_values = _merge_point_values(raw_values, inverse, len(merged_coords))
+    return merged_coords, merged_values
+
+
+def _field_to_points(mesh: meshio.Mesh, name: str, *, merge_duplicates: bool = True) -> np.ndarray:
+    if not merge_duplicates:
+        if name in mesh.point_data:
+            values = np.asarray(mesh.point_data[name], dtype=float)
+            return values[:, None] if values.ndim == 1 else values
+        block_index, cells = _triangle_block(mesh)
+        if name not in mesh.cell_data or block_index >= len(mesh.cell_data[name]):
+            raise KeyError(f"Field '{name}' not found in mesh.")
+        values = np.asarray(mesh.cell_data[name][block_index], dtype=float)
+        values_2d = values[:, None] if values.ndim == 1 else values
+        raw_values = np.zeros((len(mesh.points), values_2d.shape[1]), dtype=float)
+        weights = np.zeros(len(mesh.points), dtype=float)
+        for local_node in range(3):
+            np.add.at(raw_values, cells[:, local_node], values_2d)
+            np.add.at(weights, cells[:, local_node], 1.0)
+        raw_values /= np.maximum(weights[:, None], 1.0)
+        return raw_values
+
+    merged_coords, merged_values = _merged_point_field(mesh, name)
+    target_points, _, _ = _triangulation(mesh)
+    return _align_point_field_by_coordinates(merged_coords, merged_values, target_points)
 
 
 def _scalar_field(mesh: meshio.Mesh, name: str) -> np.ndarray:
