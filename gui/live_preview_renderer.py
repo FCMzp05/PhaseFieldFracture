@@ -21,13 +21,34 @@ from visual.gui_case_exporters import (
     _configure_vertical_colorbar,
     _merged_boundary_loops,
     _scalar_field,
-    _triangle_cells,
     _triangulation,
     _vector_field,
 )
 
 
-def _field_payload(mesh: meshio.Mesh, field: str, young_modulus: float, poisson_ratio: float):
+def _geometry_payload(mesh: meshio.Mesh):
+    points, cells, triangulation = _triangulation(mesh)
+    xmin, ymin = points.min(axis=0)
+    xmax, ymax = points.max(axis=0)
+    padx = max(0.02 * (xmax - xmin), 1.0e-3)
+    pady = max(0.02 * (ymax - ymin), 1.0e-3)
+    return {
+        "points": points,
+        "cells": cells,
+        "triangulation": triangulation,
+        "boundary_loops": _merged_boundary_loops(points, cells),
+        "xlim": (xmin - padx, xmax + padx),
+        "ylim": (ymin - pady, ymax + pady),
+    }
+
+
+def _field_payload(
+    mesh: meshio.Mesh,
+    field: str,
+    young_modulus: float,
+    poisson_ratio: float,
+    geometry: dict[str, object],
+):
     if field == "damage":
         values = _scalar_field(mesh, "d")
         return values, plt.get_cmap("turbo"), mpl.colors.Normalize(0.0, 1.0), r"$d$"
@@ -37,7 +58,8 @@ def _field_payload(mesh: meshio.Mesh, field: str, young_modulus: float, poisson_
         vmax = float(np.max(finite_values)) if finite_values.size else 1.0e-12
         return values, plt.get_cmap("viridis"), mpl.colors.Normalize(0.0, max(vmax, 1.0e-12)), "mm"
     if field == "von_mises":
-        points, cells, _ = _triangulation(mesh)
+        points = np.asarray(geometry["points"], dtype=float)
+        cells = np.asarray(geometry["cells"], dtype=int)
         damage = _scalar_field(mesh, "d")
         displacement = _vector_field(mesh, "uh")
         values = _compute_protocol_von_mises(points, cells, displacement, damage, young_modulus, poisson_ratio)
@@ -47,10 +69,16 @@ def _field_payload(mesh: meshio.Mesh, field: str, young_modulus: float, poisson_
     raise ValueError(f"Unsupported field: {field}")
 
 
-def render_preview(input_path: Path, field: str, output_path: Path, young_modulus: float, poisson_ratio: float) -> None:
-    mesh = meshio.read(input_path)
-    values, cmap, norm, colorbar_title = _field_payload(mesh, field, young_modulus, poisson_ratio)
-    points, cells, triangulation = _triangulation(mesh)
+def _render_preview(
+    mesh: meshio.Mesh,
+    geometry: dict[str, object],
+    field: str,
+    output_path: Path,
+    young_modulus: float,
+    poisson_ratio: float,
+) -> None:
+    values, cmap, norm, colorbar_title = _field_payload(mesh, field, young_modulus, poisson_ratio, geometry)
+    triangulation = geometry["triangulation"]
 
     figure = plt.figure(figsize=(7.6, 5.8), dpi=200)
     figure.patch.set_facecolor("white")
@@ -59,7 +87,7 @@ def render_preview(input_path: Path, field: str, output_path: Path, young_modulu
 
     axis.tripcolor(triangulation, values, shading="gouraud", cmap=cmap, norm=norm, rasterized=True)
 
-    for index, loop in enumerate(_merged_boundary_loops(points, cells)):
+    for index, loop in enumerate(geometry["boundary_loops"]):
         closed = np.vstack([loop, loop[0]])
         axis.plot(
             closed[:, 0],
@@ -71,12 +99,8 @@ def render_preview(input_path: Path, field: str, output_path: Path, young_modulu
             zorder=5,
         )
 
-    xmin, ymin = points.min(axis=0)
-    xmax, ymax = points.max(axis=0)
-    padx = max(0.02 * (xmax - xmin), 1.0e-3)
-    pady = max(0.02 * (ymax - ymin), 1.0e-3)
-    axis.set_xlim(xmin - padx, xmax + padx)
-    axis.set_ylim(ymin - pady, ymax + pady)
+    axis.set_xlim(*geometry["xlim"])
+    axis.set_ylim(*geometry["ylim"])
     axis.set_aspect("equal")
     axis.axis("off")
 
@@ -89,16 +113,49 @@ def render_preview(input_path: Path, field: str, output_path: Path, young_modulu
     plt.close(figure)
 
 
+def render_previews(
+    input_path: Path,
+    outputs: dict[str, Path],
+    young_modulus: float,
+    poisson_ratio: float,
+) -> None:
+    if not outputs:
+        raise ValueError("At least one preview output must be requested.")
+    mesh = meshio.read(input_path)
+    geometry = _geometry_payload(mesh)
+    for field, output_path in outputs.items():
+        _render_preview(mesh, geometry, field, output_path, young_modulus, poisson_ratio)
+
+
+def render_preview(input_path: Path, field: str, output_path: Path, young_modulus: float, poisson_ratio: float) -> None:
+    render_previews(input_path, {field: output_path}, young_modulus, poisson_ratio)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Render GUI live preview PNG from VTU data.")
     parser.add_argument("--input", required=True, type=Path)
-    parser.add_argument("--field", required=True, choices=("damage", "displacement", "von_mises"))
-    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--field", choices=("damage", "displacement", "von_mises"))
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--damage-output", type=Path)
+    parser.add_argument("--displacement-output", type=Path)
+    parser.add_argument("--von-mises-output", type=Path)
     parser.add_argument("--young-modulus", type=float, default=210950.0)
     parser.add_argument("--poisson-ratio", type=float, default=0.3)
     args = parser.parse_args()
 
-    render_preview(args.input, args.field, args.output, args.young_modulus, args.poisson_ratio)
+    outputs: dict[str, Path] = {}
+    if args.damage_output is not None:
+        outputs["damage"] = args.damage_output
+    if args.displacement_output is not None:
+        outputs["displacement"] = args.displacement_output
+    if args.von_mises_output is not None:
+        outputs["von_mises"] = args.von_mises_output
+    if not outputs:
+        if args.field is None or args.output is None:
+            parser.error("Either provide --field/--output or at least one batch output argument.")
+        outputs[args.field] = args.output
+
+    render_previews(args.input, outputs, args.young_modulus, args.poisson_ratio)
 
 
 if __name__ == "__main__":

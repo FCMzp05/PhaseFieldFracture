@@ -23,7 +23,8 @@ GUI 工作流固定为 `Mesh -> Compute -> Post-process`。参数面板按 `Geom
 当前进展补充：`Post-process` 的 `Visual Export` 视图已改为更紧凑的预览高度，并隐藏无关 `VTK` 信息；导出图中顶部列标题与协议曲线 `A/B/C` 标注已去掉。  
 当前进展补充：`Compute` 右侧第二张实时预览已由位移云图改为 `Von Mises` 云图；`Post-process` 的 `History` 下拉已移除，序列浏览改为仅对 `Damage / Displacement / Von Mises` 生效的顶栏加粗可拖拽时间轴，`Mesh / Visual Export` 不再显示时间轴；`View` 中曲线项已按算例语义显示为 `Force-Displacement Curve` 或 `Crack Growth Curve`，`Visual Export` 已改名为更接近结果汇总含义的 `Results Summary`；协议类 `Visual Export` 的 `field panel` 已扩为横向 `1x3`，内容为 `damage / displacement magnitude / von Mises stress`。  
 当前进展补充：协议类 `von Mises` 预览与 `Post-process` 缓存已统一复用同一套节点合并与坐标对齐逻辑，不再各自维护一份重排实现；GUI 启动 Julia 时已显式传入 `--threads=auto`，并默认按可用 CPU 数设置 `OPENBLAS_NUM_THREADS`，协议求解启动日志会输出 `compute_threads / blas_threads / cpu_threads`。  
-下一步：继续观察协议类 `von Mises` 云图与 `Displacement / Damage` 的空间对应是否稳定，并评估 batch benchmark 中哪些算例还需要进一步做进程级并行，而不是仅依赖 Julia 线程与 BLAS 线程。
+当前进展补充：协议类实时预览已改为单次临时 `VTU` 导出后批量渲染 `damage / displacement / von Mises`，不再为三个字段重复写临时文件并重复启动 Python；`Visual Export` 已改为计算结束后后台线程生成，主线程不再同步等待导出完成。  
+下一步：继续观察协议类实时预览吞吐与 `Visual Export` 后台生成的稳定性，并评估 `Von Mises` 历史图是否也需要进一步改成后台懒生成。
 
 ## 环境
 

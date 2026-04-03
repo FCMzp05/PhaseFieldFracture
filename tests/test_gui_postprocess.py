@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import QGraphicsOpacityEffect
 from PyQt5.QtWidgets import QApplication
 
 import gui.gui_main as gui_main
-from gui.run_manifest import RunManifest, write_manifest
+from gui.run_manifest import RunManifest, load_manifest, write_manifest
 from visual import gui_case_exporters
 
 
@@ -707,6 +707,93 @@ class GuiPostprocessTests(unittest.TestCase):
         self.assertFalse(self.window._compute_curve_collapsed)
         self.assertFalse(self.window.curve_surface.isHidden())
         self.assertEqual(self.window.curve_toggle_button.text(), "▾")
+
+    def test_build_manifest_after_run_skips_synchronous_visual_export(self):
+        self._open_window()
+        case = gui_main.CASE_DEFINITIONS["sent_tension"]
+        run_id = "sent_tension_20260403_000000"
+        run_dir = self.runs_dir / case.case_id / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        runtime_params_path = run_dir / "runtime_params.json"
+        runtime_params_path.write_text("{}", encoding="utf-8")
+        native_dir = run_dir / "native"
+        native_dir.mkdir(parents=True, exist_ok=True)
+
+        manifest = RunManifest(
+            category_id=case.category_id,
+            case_id=case.case_id,
+            run_id=run_id,
+            status="completed",
+            backend_mode=case.backend_mode,
+            curve_kind=case.curve_kind,
+            run_profile="preview",
+            source_script="",
+            run_dir=str(run_dir),
+            runtime_params_path=str(runtime_params_path),
+            native_output_dir=str(native_dir),
+            vtk_paths=[str(native_dir / "result_SENT_final.vtu")],
+        )
+        self.window.active_run_profile = "preview"
+        self.window.active_run_id = run_id
+        self.window.active_run_dir = run_dir
+        self.window.runtime_params_path = runtime_params_path
+
+        with mock.patch.object(self.window, "_build_manifest_from_disk", return_value=manifest), mock.patch.object(
+            gui_main,
+            "export_visuals",
+            side_effect=AssertionError("visual export should not run in _build_manifest_after_run"),
+        ):
+            manifest_path, built_manifest = self.window._build_manifest_after_run(case)
+
+        self.assertEqual(manifest_path, run_dir / "manifest.json")
+        self.assertEqual(built_manifest.run_id, run_id)
+        self.assertTrue(manifest_path.exists())
+
+    def test_visual_export_finished_updates_state_and_latest_manifest(self):
+        case_id = "sent_tension"
+        run_id = "sent_tension_20260403_010203"
+        native_dir = self.temp_path / "native"
+        native_dir.mkdir(parents=True, exist_ok=True)
+        run_dir = self.runs_dir / case_id / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        archived_manifest_path = run_dir / "manifest.json"
+        latest_path = self.manifest_dir / f"{case_id}_latest.json"
+        manifest = RunManifest(
+            category_id=gui_main.CASE_DEFINITIONS[case_id].category_id,
+            case_id=case_id,
+            run_id=run_id,
+            status="completed",
+            backend_mode="protocol_julia",
+            curve_kind="force_displacement",
+            run_profile="preview",
+            source_script="",
+            run_dir=str(run_dir),
+            runtime_params_path="",
+            native_output_dir=str(native_dir),
+            vtk_paths=[str(native_dir / "result_SENT_final.vtu")],
+        )
+        write_manifest(archived_manifest_path, manifest)
+        write_manifest(latest_path, manifest)
+
+        self._open_window()
+        self.window._apply_manifest_to_state(case_id, archived_manifest_path, manifest)
+
+        export_path = self.temp_path / "sent_field_panel.png"
+        image = QImage(1200, 800, QImage.Format_RGB32)
+        image.fill(QColor("#eef3f8"))
+        self.assertTrue(image.save(str(export_path)))
+
+        self.window.on_visual_export_finished(
+            case_id,
+            run_id,
+            str(archived_manifest_path),
+            {"field_panel": str(export_path)},
+            "",
+        )
+
+        self.assertEqual(self.window.case_states[case_id]["visual_export_paths"], {"field_panel": str(export_path)})
+        latest_manifest = load_manifest(latest_path)
+        self.assertEqual(latest_manifest.exported_visual_paths, {"field_panel": str(export_path)})
 
 
 if __name__ == "__main__":

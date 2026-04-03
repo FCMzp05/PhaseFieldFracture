@@ -960,6 +960,49 @@ class BatchJuliaWorker(QThread):
             self.finished_state.emit(success, self.case_id, self.run_mode, message)
 
 
+class VisualExportWorker(QThread):
+    finished_state = pyqtSignal(str, str, str, object, str)
+
+    def __init__(
+        self,
+        case_id: str,
+        run_id: str,
+        manifest_path: Path,
+        exporter_name: str,
+        native_output_dir: Path,
+        output_dir: Path,
+        runtime_params_path: Path | None,
+    ):
+        super().__init__()
+        self.case_id = case_id
+        self.run_id = run_id
+        self.manifest_path = manifest_path
+        self.exporter_name = exporter_name
+        self.native_output_dir = native_output_dir
+        self.output_dir = output_dir
+        self.runtime_params_path = runtime_params_path
+
+    def run(self):
+        exported_paths: dict[str, str] = {}
+        error_message = ""
+        try:
+            exported_paths = export_visuals(
+                self.exporter_name,
+                self.native_output_dir,
+                self.output_dir,
+                self.runtime_params_path,
+            )
+        except Exception as exc:
+            error_message = str(exc)
+        self.finished_state.emit(
+            self.case_id,
+            self.run_id,
+            str(self.manifest_path),
+            exported_paths,
+            error_message,
+        )
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -967,6 +1010,7 @@ class MainWindow(QMainWindow):
         self.resize(1560, 940)
 
         self.worker = None
+        self.visual_export_workers: dict[tuple[str, str], VisualExportWorker] = {}
         self.active_run_mode = None
         self.active_case_id = None
         self.active_run_profile = None
@@ -2611,7 +2655,6 @@ class MainWindow(QMainWindow):
     def _build_manifest_from_disk(
         self,
         case,
-        perform_export: bool,
         *,
         run_profile: str | None = None,
         run_id: str | None = None,
@@ -2687,8 +2730,6 @@ class MainWindow(QMainWindow):
             manifest = None
         if manifest is None:
             return None
-        if perform_export and case.visual_exporter:
-            self._populate_visual_exports(case, manifest)
         return manifest
 
     def _build_protocol_manifest(
@@ -2964,29 +3005,81 @@ class MainWindow(QMainWindow):
             damage_paths=self._collect_files(native_output_dir, ("damage_final.png",), recursive=False),
         )
 
-    def _populate_visual_exports(self, case, manifest: RunManifest):
+    def _can_export_visuals(self, case, manifest: RunManifest):
         if not case.visual_exporter or not manifest.native_output_dir:
-            return
-        if not any([manifest.snapshot_paths, manifest.curve_csv_paths, manifest.damage_paths, manifest.vtk_paths]):
+            return False
+        return any([manifest.snapshot_paths, manifest.curve_csv_paths, manifest.damage_paths, manifest.vtk_paths])
+
+    def _append_manifest_note(self, manifest: RunManifest, note: str):
+        if note and note not in manifest.notes:
+            manifest.notes.append(note)
+
+    def _start_visual_export_worker(self, case, manifest: RunManifest, manifest_path: Path):
+        if not self._can_export_visuals(case, manifest):
             return
 
         native_output_dir = Path(manifest.native_output_dir)
         if not native_output_dir.exists():
-            manifest.notes.append(f"Visual export skipped: missing output dir {native_output_dir}")
+            self._append_manifest_note(manifest, f"Visual export skipped: missing output dir {native_output_dir}")
+            write_manifest(manifest_path, manifest)
+            if self.case_states[case.case_id].get("run_id") == manifest.run_id:
+                write_manifest(latest_manifest_path(case.case_id), manifest)
             return
 
-        try:
-            export_dir = VISUAL_EXPORT_DIR / case.case_id / manifest.run_id
-            runtime_params_path = Path(manifest.runtime_params_path) if manifest.runtime_params_path else None
-            manifest.exported_visual_paths = export_visuals(
-                case.visual_exporter,
-                native_output_dir,
-                export_dir,
-                runtime_params_path,
-            )
-        except Exception as exc:
-            manifest.exported_visual_paths = {}
-            manifest.notes.append(f"Visual export failed: {exc}")
+        worker_key = (case.case_id, manifest.run_id)
+        existing_worker = self.visual_export_workers.get(worker_key)
+        if existing_worker is not None and existing_worker.isRunning():
+            return
+
+        runtime_params_path = Path(manifest.runtime_params_path) if manifest.runtime_params_path else None
+        worker = VisualExportWorker(
+            case.case_id,
+            manifest.run_id,
+            manifest_path,
+            case.visual_exporter,
+            native_output_dir,
+            VISUAL_EXPORT_DIR / case.case_id / manifest.run_id,
+            runtime_params_path,
+        )
+        worker.finished_state.connect(self.on_visual_export_finished)
+        self.visual_export_workers[worker_key] = worker
+        worker.start()
+
+    def on_visual_export_finished(
+        self,
+        case_id: str,
+        run_id: str,
+        manifest_path_raw: str,
+        exported_paths: object,
+        error_message: str,
+    ):
+        worker_key = (case_id, run_id)
+        worker = self.visual_export_workers.pop(worker_key, None)
+        if worker is not None:
+            worker.deleteLater()
+
+        manifest_path = Path(manifest_path_raw)
+        manifest = self._load_manifest_file(manifest_path)
+        if manifest is None:
+            return
+
+        manifest.exported_visual_paths = {str(key): str(value) for key, value in dict(exported_paths or {}).items()}
+        if error_message:
+            self._append_manifest_note(manifest, f"Visual export failed: {error_message}")
+        write_manifest(manifest_path, manifest)
+
+        state = self.case_states[case_id]
+        current_manifest = state.get("manifest")
+        if current_manifest is not None and current_manifest.run_id == run_id:
+            current_manifest.exported_visual_paths = dict(manifest.exported_visual_paths)
+            if error_message:
+                self._append_manifest_note(current_manifest, f"Visual export failed: {error_message}")
+            state["visual_export_paths"] = dict(current_manifest.exported_visual_paths)
+            visual_history = list(state["visual_export_paths"].values())
+            state["history_selection"]["Visual Export"] = visual_history[-1] if visual_history else None
+            write_manifest(latest_manifest_path(case_id), current_manifest)
+            if self.current_case == case_id and self._current_postprocess_view() == "Visual Export":
+                self.refresh_postprocess_view(prefer_latest=True, animate=False)
 
     def _apply_manifest_to_state(self, case_id: str, manifest_path: Path, manifest: RunManifest):
         state = self.case_states[case_id]
@@ -3447,8 +3540,11 @@ class MainWindow(QMainWindow):
 
     def _timeline_label_text(self, view_name: str, path: Path, frame_index: int, frame_count: int):
         step_value = extract_numeric_suffix(path)
-        if view_name in {"Damage", "Displacement", "Von Mises"} and step_value is not None:
-            return f"Frame {frame_index + 1}/{frame_count} | Step {step_value}"
+        if view_name in {"Damage", "Displacement", "Von Mises"}:
+            frame_label = f"Frame {frame_index + 1}/{frame_count}"
+            if step_value is not None:
+                return f"{frame_label} | Step {step_value}"
+            return f"{frame_label} | {path.name}"
         if frame_count <= 1:
             return path.name
         return f"Item {frame_index + 1}/{frame_count} | {path.name}"
@@ -3666,11 +3762,13 @@ class MainWindow(QMainWindow):
 
     def _history_paths_for_case(self, case_id: str, view_name: str):
         state = self.case_states[case_id]
-        manifest = state["manifest"]
-        if manifest is None:
-            return []
         if view_name == "Mesh":
             return [state["mesh_preview_path"]] if state["mesh_preview_path"] else []
+        manifest = state["manifest"]
+        if manifest is None:
+            if view_name == "Visual Export":
+                return [Path(path) for path in state["visual_export_paths"].values() if Path(path).exists()]
+            return []
         if view_name == "Damage":
             paths = [Path(path) for path in manifest.snapshot_paths]
             final_damage = state["latest_damage_path"]
@@ -4180,10 +4278,8 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Results Saved", f"Saved {copied_count} payload(s) to {target_path}.")
 
     def _build_manifest_after_run(self, case):
-        perform_export = bool(case.visual_exporter)
         manifest = self._build_manifest_from_disk(
             case,
-            perform_export=perform_export,
             run_profile=self.active_run_profile,
             run_id=self.active_run_id,
             run_dir_path=self.active_run_dir,
@@ -4208,6 +4304,7 @@ class MainWindow(QMainWindow):
             manifest_path, manifest = self._build_manifest_after_run(case)
             if manifest is not None and manifest_path is not None:
                 self._apply_manifest_to_state(case_id, manifest_path, manifest)
+                self._start_visual_export_worker(case, manifest, manifest_path)
             if run_mode == "mesh":
                 state["mesh_status"] = "Mesh ready."
             else:
@@ -4274,6 +4371,9 @@ class MainWindow(QMainWindow):
         if self.worker is not None and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait(5000)
+        for worker in list(self.visual_export_workers.values()):
+            worker.wait(5000)
+        self.visual_export_workers.clear()
         self.cleanup_runtime_params()
         if not self.keep_transient_results:
             purge_transient_gui_results()
