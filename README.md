@@ -1,6 +1,6 @@
 # Repository for *From Brittle Fracture to Elastoplastic Fatigue: An Open-Source Phase Field Framework in Julia*
 
-`phase_field_fracture` is the companion repository for the manuscript *From Brittle Fracture to Elastoplastic Fatigue: An Open-Source Phase Field Framework in Julia*. It contains the Julia/Gridap implementation, benchmark scripts, and GUI used to reproduce and explore the results reported in the paper.
+`PhaseFieldFracture` is the companion repository for the manuscript *From Brittle Fracture to Elastoplastic Fatigue: An Open-Source Phase Field Framework in Julia*. It contains the Julia/Gridap implementation, benchmark scripts, and GUI used to reproduce and explore the results reported in the paper.
 
 ## Three key features
 
@@ -46,7 +46,8 @@ Linux is the recommended platform for routine use.
 ## Quick start
 
 ```bash
-cd /path/to/phase_field_fracture
+git clone https://github.com/FCMzp05/PhaseFieldFracture
+cd /path/to/PhaseFieldFracture
 export REPO_ROOT="$(pwd)"
 eval "$("$HOME/miniforge3/bin/conda" shell.bash hook)"
 conda env create -f environment.yml || conda env update -f environment.yml --prune
@@ -65,7 +66,7 @@ Output: mesh files, curves, snapshots, `VTU`, manifests, and summary figures und
 Run on Linux:
 
 ```bash
-cd /path/to/phase_field_fracture
+cd /path/to/PhaseFieldFracture
 export REPO_ROOT="$(pwd)"
 eval "$("$HOME/miniforge3/bin/conda" shell.bash hook)"
 conda activate gui_envs
@@ -81,7 +82,7 @@ Output: raw result files under `gui/gui_results/` for the selected case
 Run on Linux:
 
 ```bash
-cd /path/to/phase_field_fracture
+cd /path/to/PhaseFieldFracture
 export REPO_ROOT="$(pwd)"
 eval "$("$HOME/miniforge3/bin/conda" shell.bash hook)"
 conda activate gui_envs
