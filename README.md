@@ -1,4 +1,4 @@
-# phase_field_fracture
+# Repository for *From Brittle Fracture to Elastoplastic Fatigue: An Open-Source Phase Field Framework in Julia*
 
 `phase_field_fracture` is the companion repository for the manuscript *From Brittle Fracture to Elastoplastic Fatigue: An Open-Source Phase Field Framework in Julia*. It contains the Julia/Gridap implementation, benchmark scripts, and GUI used to reproduce and explore the results reported in the paper.
 
