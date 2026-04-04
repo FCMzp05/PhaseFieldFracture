@@ -1,6 +1,6 @@
-name = "peng_pf_ui_julia"
+name = "phase_field_fracture_julia"
 uuid = "23f90520-1a84-4a39-a503-4f4c2f0d0f75"
-authors = ["peng_pf_ui contributors"]
+authors = ["phase_field_fracture contributors"]
 version = "0.1.0"
 
 [deps]

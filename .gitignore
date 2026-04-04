@@ -16,3 +16,5 @@ gui/gui_stop.flag
 gui_params_*.json
 
 new
+install.md
+README_latest.md
