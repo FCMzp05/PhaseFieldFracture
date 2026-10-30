@@ -1,6 +1,6 @@
 # Repository for *From Brittle Fracture to Elastoplastic Fatigue: An Open-Source Phase Field Framework in Julia*
 
-`PhaseFieldFracture` is the companion repository for the manuscript *From Brittle Fracture to Elastoplastic Fatigue: An Open-Source Phase Field Framework in Julia*. It contains the Julia/Gridap implementation, benchmark scripts, and GUI used to reproduce and explore the results reported in the paper.
+`PhaseFieldFracture` is the companion repository for the paper P. Zhang, D. Zhao, K. Tang, *From brittle fracture to elastoplastic fatigue: An open-source phase field framework in Julia*, Advances in Engineering Software 220, 104222 (2026), https://doi.org/10.1016/j.advengsoft.2026.104222. It contains the Julia/Gridap implementation, benchmark scripts, and GUI used to reproduce and explore the results reported in the paper.
 
 ## Three key features
 
@@ -96,10 +96,13 @@ julia gui/gui_solver.jl gui/params_default.json
 If you use this repository, please cite:
 
 ```bibtex
-@misc{zhang2026phasefield,
-  title   = {From Brittle Fracture to Elastoplastic Fatigue: An Open-Source Phase Field Framework in Julia},
+@article{zhang2026phasefield,
+  title   = {From brittle fracture to elastoplastic fatigue: An open-source phase field framework in {Julia}},
   author  = {Zhang, Peng and Zhao, Dazhi and Tang, Keke},
+  journal = {Advances in Engineering Software},
+  volume  = {220},
+  pages   = {104222},
   year    = {2026},
-  note    = {Companion paper and repository}
+  doi     = {10.1016/j.advengsoft.2026.104222}
 }
 ```
